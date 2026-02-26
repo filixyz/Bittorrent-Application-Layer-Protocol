@@ -4,15 +4,15 @@
 #include "../Bencoder/Bencode.h"
 #include <filesystem>
 
-class Torrent_File {
+class TorrentFile {
 private:
   std::map<std::string, Bendata> transcibe;
   std::map<std::string, Bendata> *info_hash;
   void check_validity_of_transcribe() const;
 
 public:
-  Torrent_File(const std::filesystem::path pathname);
-  Torrent_File() = delete;
+  TorrentFile(const std::filesystem::path pathname);
+  TorrentFile() = delete;
   std::string get_tracker_url() const;
   std::string get_info_key() const;
   std::string get_torrent_name() const;
