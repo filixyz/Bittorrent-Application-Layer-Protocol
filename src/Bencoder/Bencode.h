@@ -22,6 +22,7 @@
 
 #include <exception>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <map>
 #include <stdexcept>
@@ -38,14 +39,16 @@ constexpr ben_t BEN_NUM_T = 'i';
 constexpr ben_t BEN_STR_T = 's';
 constexpr ben_t BEN_DELIMETER = 'e';
 
+struct BenDictPair {
+  std::string key;
+  std::string bencoded_value;
+};
+
 class Bendata {
 private:
-  std::variant<int, std::string, std::vector<Bendata>,
-               std::map<std::string, Bendata>>
-      actual_value;
+  std::variant<int, std::string, std::vector<Bendata>,std::map<std::string, Bendata>> actual_value;
   std::string bencode;
   ben_t _t;
-
 public:
   Bendata() = default;
   Bendata(int number);
@@ -61,6 +64,12 @@ public:
   friend bool bendecode_string(std::ifstream &, Bendata &);
   friend bool bendecode_dictionary(std::ifstream &, Bendata &);
   friend bool bendecode_list(std::ifstream &, Bendata &);
+
+  static std::string encode(int);
+  static std::string encode(const std::string&);
+  static std::string encode_to_list(std::initializer_list<std::string>);
+  static std::string encode_to_dict(std::initializer_list<BenDictPair>);
+
   friend std::ostream &operator<<(std::ostream &os, const Bendata &ben_object);
 };
 

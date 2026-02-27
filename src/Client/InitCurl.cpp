@@ -1,13 +1,13 @@
-#include "InitLibcurl.h"
+#include "InitCurl.h"
 #include <cstring>
 #include <curl/curl.h>
 
-InitLibcurl::InitLibcurl(){
+InitCurl::InitCurl(){
   success=curl_global_init(CURL_FLAG);
 }
-InitLibcurl::~InitLibcurl(){
+InitCurl::~InitCurl(){
   curl_global_cleanup();
 }
-InitLibcurl::operator bool() const {
+InitCurl::operator bool() const {
   return !success;
 }

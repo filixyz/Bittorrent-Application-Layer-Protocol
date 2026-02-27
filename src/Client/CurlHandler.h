@@ -16,19 +16,18 @@ enum LibcurlOptions {
   SET_ARGS
 };
 
-class LibCurlHandle {
+class CurlHandle {
   CURL *handle;
+  static size_t callback_func(const char* data, size_t size, size_t datalen,void *user_data);
 public:
-  LibCurlHandle();
-  ~LibCurlHandle();
+  CurlHandle();
+  ~CurlHandle();
   unsigned set_option(LibcurlOptions, auto user_field);
   void reset();
   unsigned perform() const;
 };
 
-size_t callback_func(const char* data, size_t size, size_t datalen,void *user_data);
-
-unsigned LibCurlHandle::set_option(LibcurlOptions option, auto user_field) {
+unsigned CurlHandle::set_option(LibcurlOptions option, auto user_field) {
   if (!handle) {
     // come back here later an define a better error code
     return -1;

@@ -4,11 +4,11 @@
 
 constexpr long CURL_FLAG=CURL_GLOBAL_ALL;
 
-class InitLibcurl{
+class InitCurl{
   CURLcode success;
 public:
-  InitLibcurl();
-  ~InitLibcurl();
+  InitCurl();
+  ~InitCurl();
   explicit operator bool() const;
 };
 

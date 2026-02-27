@@ -1,13 +1,13 @@
-#include "Client/InitLibcurl.h"
-#include "Client/LibcurlHandler.h"
+#include "Client/InitCurl.h"
+#include "Client/CurlHandler.h"
 #include <curl/curl.h>
 #include <iostream>
 #include <cassert>
 
 int main(){
-  InitLibcurl global_curl_initialized{};
+  InitCurl global_curl_initialized{};
   assert(global_curl_initialized);
-  LibCurlHandle handle{};
+  CurlHandle handle{};
   network_data result{};
   handle.set_option(SET_URL, "https://google.com");
   handle.set_option(SET_RES_VAR, &result);
