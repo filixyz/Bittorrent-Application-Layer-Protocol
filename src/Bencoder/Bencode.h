@@ -67,8 +67,8 @@ public:
 
   static std::string encode(int);
   static std::string encode(const std::string&);
-  static std::string encode_to_list(std::initializer_list<std::string>);
-  static std::string encode_to_dict(std::initializer_list<BenDictPair>);
+  static std::string encode_to_list(std::vector<std::string>);
+  static std::string encode_to_dict(std::vector<BenDictPair>);
 
   friend std::ostream &operator<<(std::ostream &os, const Bendata &ben_object);
 };
