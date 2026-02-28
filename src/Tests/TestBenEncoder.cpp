@@ -1,35 +1,45 @@
-#include "../Bencoder/Bencode.h"
-#include <cstddef>
+#include <initializer_list>
 #include <type_traits>
-#include <cstring>
+#include <deque>
+#include <iostream>
+#include <functional>
+#include <utility>
+#include "../Bencoder/Bencode.h"
 
+// when laptop charged overload add test; one for variadic arguemnst to be forwarded
+// the other for initializer_list to be passed to test function, since they behave
+// abnormally when used in the context of variadic templates
 struct Tester {
-  int test_count;
-  int test_counter;
-  Tester(int count) : test_count(count), test_counter(count) {}
+  std::deque<std::function<void()>> test_list;
 
   template <typename F, typename ER, typename ...A>
-  void test(F func, ER expected_result,A...args ) {
-    if (test_counter!=0) { --test_counter; return; }
-    using return_type = std::result_of<F(A...)>::type;
-    return_type return_value = func(args...);
-    std::size_t size = sizeof(std::decay_t<ER>);
-    if (std::is_pointer<return_type>::value && std::is_pointer<ER>::value) {
-      bool equal = std::memcmp(return_value, expected_result, size);
-      std::cout << "Test " << test_count-test_counter << (equal?" succeeded":" failed") << '\n';
-      return;
-    } else {
-      bool equal = std::memcmp(&return_value, &expected_result, size);
-      std::cout << "Test " << test_count-test_counter << (equal?" succeeded":" failed") << '\n';
-      return;
+  Tester& add_test(std::string test_tag, F func, ER expected_result,A&&... args) {
+    auto test = [=](){;
+      using return_type = std::decay_t< typename std::invoke_result_t<F,A...> >;
+      return_type return_value = func(std::forward<A>(args)...);
+      bool is_return_type_ptr = std::is_pointer_v<return_type>;
+      //std::remove_pointer_t<return_type> return_value_nptr = is_return_type_ptr ? *return_value : return_value;
+      bool result_equal = return_value == expected_result;
+      std::cout << return_value << '\n';
+      std::cout << "Descriptor: " << test_tag << (result_equal?" succeeded":" failed") << '\n';
+    };
+    test_list.push_back(test);
+    return *this;
+  }
+  void run_tests() {
+    int test_size = test_list.size();
+    for (int test_index=0; test_index<test_size; ++test_index) {
+      std::cout << "test " << test_index+1 << '/' << test_size << " -> ";
+      auto test = std::move(test_list.front());
+      test();
+      test_list.pop_front();
     }
   }
-  //template<typename T, typename MF, typename R>
-  //void test(T type , MF member_function, R expected_result ) {
-  //}
 };
 
 int main() {
-  Tester ben_encoder_tester(1);
-  ben_encoder_tester.test(Bendata::encode, 788, std::string("i788e"));
+  Tester ben_encoder_tester{};
+  ben_encoder_tester.add_test("Ben-encoder for int", Bendata::encode_to_list, "li755ee", std::initializer_list<std::string>{"i755e"})
+
+  ben_encoder_tester.run_tests();
 }
