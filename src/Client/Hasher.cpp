@@ -1,0 +1,23 @@
+#include "Hasher.h"
+#include <crypto++/sha.h>
+#include <cstddef>
+#include <sstream>
+#include <string>
+
+const std::vector<std::byte> Hasher::get_sha1(const std::span<const std::byte> data) {
+  CryptoPP::SHA1 hash;
+  std::vector<std::byte> digest(hash.DigestSize());
+  hash.Update(reinterpret_cast<const unsigned char*>(data.data()), data.size());
+  hash.Final(reinterpret_cast<unsigned char*>(&digest[0]));
+  return digest;
+}
+
+std::string Hasher::hex_stringify_hash(const std::vector<std::byte>& byte_sequence) {
+  std::stringstream hex_stream;
+  hex_stream << std::hex;
+  for(const std::byte& byt: byte_sequence) {
+    unsigned decimal_value = std::to_integer<unsigned>(byt);
+    hex_stream << (decimal_value<16 ? (hex_stream<<0,decimal_value) : decimal_value);
+  }
+  return hex_stream.str();
+}

@@ -1,6 +1,7 @@
 #include "TorrentFile.h"
 #include "../Errorhandlers/BittorentErrors.h"
 #include <fstream>
+#include <crypto++/sha.h>
 
 constexpr int HASH_STRING_LENGTH = 20;
 

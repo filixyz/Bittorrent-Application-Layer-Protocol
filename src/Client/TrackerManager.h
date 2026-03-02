@@ -6,12 +6,12 @@
 class TrackerManager {
   CurlHandle tracker;
   const TorrentFile& torrent;
-  unsigned peer_socket_port;
+  unsigned listening_port;
   const std::string protocol;
 
   using peer_schema = std::string;
-  std::vector<peer_schema> get_peers_http();
-  std::vector<peer_schema> get_peers_udp();
+  peer_schema get_peers_http();
+  peer_schema get_peers_udp();
 
 public:
   TrackerManager(TorrentFile& torrent_, unsigned psp);

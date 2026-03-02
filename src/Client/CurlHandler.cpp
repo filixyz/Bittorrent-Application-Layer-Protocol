@@ -11,6 +11,11 @@ size_t CurlHandle::callback_func(const char* data, size_t size, size_t datalen,v
   return datalen;
 }
 
+void CurlHandle::escape_url(std::string& url) {
+  char * escaped_string = curl_escape(url.data(), url.size());
+  url.replace(url.begin(), url.end(), escaped_string);
+}
+
 CurlHandle::CurlHandle() { handle = curl_easy_init(); }
 CurlHandle::~CurlHandle() { curl_easy_cleanup(handle); }
 unsigned CurlHandle::perform() const { return curl_easy_perform(handle); }
