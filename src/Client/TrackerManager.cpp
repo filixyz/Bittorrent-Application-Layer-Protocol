@@ -11,7 +11,7 @@ TrackerManager::peer_schema TrackerManager::get_peers_http() {
   std::string tracker_url = torrent.get_tracker_url();
   auto make_param = [](std::string key, std::string value) { return key + '=' + value; };
   std::vector<std::string> params;
-  params.push_back(make_param("info_hash", "s"));
+  params.push_back(make_param("info_hash", /** provide hash here **/));
   params.push_back(make_param("peer_id", client::constants::client_id ));
   params.push_back(make_param("port", std::to_string(listening_port)));
   params.push_back(make_param("uploaded", "0"));
