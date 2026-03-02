@@ -1,17 +1,21 @@
-#include "PeerManager.h"
+#include "CurlHandler.h"
+#include "TorrentFile.h"
 #include <string>
 #include <vector>
 
-enum class TrackerProtocol { UDP_MODE, HTTP_MODE };
-
 class TrackerManager {
-  std::string tracker_url;
-  const TrackerProtocol tracker_mode;
-  std::vector<Peer> get_peers_for_http_mode();
-  std::vector<Peer> get_peers_for_udp_mode();
+  CurlHandle tracker;
+  const TorrentFile& torrent;
+  unsigned peer_socket_port;
+  const std::string protocol;
+
+  using peer_schema = std::string;
+  std::vector<peer_schema> get_peers_http();
+  std::vector<peer_schema> get_peers_udp();
+
 public:
-  TrackerManager() = default;
-  TrackerManager(std::string announce_url);
-  void send_request_to_tracker();
+  TrackerManager(TorrentFile& torrent_, unsigned psp);
+  std::vector<peer_schema> request_peers();
   void update_tracker();
+  void scrape_tracker();
 };

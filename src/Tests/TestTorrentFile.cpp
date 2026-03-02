@@ -1,8 +1,8 @@
-#include "../TorrentFile/Torrent_File.h"
+#include "../Client/TorrentFile.h"
 #include <ios>
 
 int main() {
-  Torrent_File tfile{
+  TorrentFile tfile{
       "Torrents/F2E7E319FC4CF6868456BF384E04E0B33B3AC4FC.torrent"};
   std::cout << std::boolalpha;
   std::cout << tfile.get_info_key() << '\n';
