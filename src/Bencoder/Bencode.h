@@ -51,6 +51,7 @@ private:
   ben_t _t;
 public:
   Bendata() = default;
+  ~Bendata() = default;
   Bendata(int number);
   Bendata(std::string string);
   explicit Bendata(Bendata_init_flag flag);
@@ -78,7 +79,8 @@ template <typename T> T &Bendata::get_data() {
   return value;
 }
 
-template <typename T> const T &Bendata::get_data() const {
+template <typename T>
+const T &Bendata::get_data() const {
   const T &value = std::get<T>(actual_value);
   return value;
 }

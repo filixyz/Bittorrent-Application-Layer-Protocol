@@ -21,3 +21,10 @@ std::string Hasher::hex_stringify_hash(const std::vector<std::byte>& byte_sequen
   }
   return hex_stream.str();
 }
+
+std::string Hasher::byte_stringify_hash(const std::vector<std::byte>& byte_sequence) {
+  std::string byte_string;
+  for(auto byt : byte_sequence)
+    byte_string += static_cast<std::string::value_type>(byt);
+  return byte_string;
+}

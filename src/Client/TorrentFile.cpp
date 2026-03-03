@@ -23,24 +23,24 @@ void TorrentFile::check_validity_of_transcribe() const {
   // implement later
 }
 
-std::string TorrentFile::get_tracker_url() const {
+std::string_view TorrentFile::get_tracker_url() const {
   return transcibe.find("announce")->second.get_data<std::string>();
 }
-std::string TorrentFile::get_info_key() const {
+std::string_view TorrentFile::get_info_key() const {
   return transcibe.find("info")->second.get_encode();
 }
-std::string TorrentFile::get_torrent_name() const {
+std::string_view TorrentFile::get_torrent_name() const {
   return info_hash->find("name")->second.get_data<std::string>();
 }
 int TorrentFile::get_piece_length() const {
   return info_hash->find("piece length")->second.get_data<int>();
 }
 
-std::string TorrentFile::get_piece_hash(int index) const {
+std::string_view TorrentFile::get_piece_hash(int index) const {
   const std::string &pieces_hash =
       info_hash->find("pieces")->second.get_data<std::string>();
   int hash_index = index * HASH_STRING_LENGTH;
-  return pieces_hash.substr(hash_index, HASH_STRING_LENGTH);
+  return std::string_view(&pieces_hash[hash_index], HASH_STRING_LENGTH);
 }
 
 bool TorrentFile::torrent_is_file() const {

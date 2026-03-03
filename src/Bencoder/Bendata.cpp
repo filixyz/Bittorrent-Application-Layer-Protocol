@@ -43,7 +43,7 @@ std::ostream &operator<<(std::ostream &os, const Bendata &ben_object) {
     const std::vector<Bendata> &list =
         ben_object.get_data<std::vector<Bendata>>();
     os << '[';
-    for (int i = 0; i < list.size(); ++i) {
+    for (size_t i = 0; i < list.size(); ++i) {
       if (i == list.size() - 1)
         os << list[i];
       else
