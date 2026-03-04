@@ -25,7 +25,7 @@ public:
   unsigned set_option(LibcurlOptions, auto user_field);
   void reset();
   unsigned perform() const;
-  static void escape_url(std::string&);
+  static void escape_byte_string(std::string&);
 };
 
 unsigned CurlHandle::set_option(LibcurlOptions option, auto user_field) {

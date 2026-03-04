@@ -1,7 +1,7 @@
 #include "../Client/TrackerManager.h"
 #include "../Client/Hasher.h"
 int main() {
-  TorrentFile torrent ("/** place torrent path here**/");
+  TorrentFile torrent ("/** insert metainfo path  **/");
   TrackerManager tracker (torrent, 6881);
   std::string compact_response = tracker.get_peers_http();
   std::cout << compact_response << '\n' << '\n';

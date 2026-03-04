@@ -11,7 +11,7 @@ size_t CurlHandle::callback_func(const char* data, size_t size, size_t datalen,v
   return datalen;
 }
 
-void CurlHandle::escape_url(std::string& url) {
+void CurlHandle::escape_byte_string(std::string& url) {
   char * escaped_string = curl_escape(url.data(), url.size());
   url.replace(url.begin(), url.end(), escaped_string);
 }
