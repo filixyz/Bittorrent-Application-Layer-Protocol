@@ -1,5 +1,5 @@
 Mar 4, 15.17
-[] Create a container for multiple tracker urls in tracker manager incase announce-list key is included in metainfo file
+[+] Create a container for multiple tracker urls in tracker manager incase announce-list key is included in metainfo file
 [] Implement mechanism to pipeline requests to all trackers; will be achived with curl_multi_handle instead of an easy one
 [] Implement mechanism for containerization of responses from the pipelined tracker reuests
 [] Overload set_option member function in curl handler class to separate concerns, potential bug noticed or entirely scrape off

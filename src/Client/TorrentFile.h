@@ -13,7 +13,7 @@ private:
 public:
   TorrentFile(const std::filesystem::path pathname);
   TorrentFile() = delete;
-  std::string_view get_tracker_url() const;
+  std::vector<std::string_view> get_tracker_urls() const;
   std::string_view get_info_key() const;
   std::string_view get_torrent_name() const;
   int get_piece_length() const;

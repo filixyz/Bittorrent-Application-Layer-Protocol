@@ -23,9 +23,18 @@ void TorrentFile::check_validity_of_transcribe() const {
   // implement later
 }
 
-std::string_view TorrentFile::get_tracker_url() const {
-  return transcibe.find("announce")->second.get_data<std::string>();
+std::vector<std::string_view> TorrentFile::get_tracker_urls() const {
+  std::vector<std::string_view> trackers;
+  trackers.push_back( transcibe.find("announce")->second.get_data<std::string>() );
+  if ( transcibe.contains("announce-list") ) {
+    const std::vector<Bendata>& announce_list = transcibe.find("announce-list")->second.get_data<ben::lis>();
+    for (const Bendata& bencoded_url : announce_list)
+      for (const Bendata& list : bencoded_url.get_data<ben::lis>())
+        trackers.push_back(list.get_data<ben::str>());
+  }
+  return trackers;
 }
+
 std::string_view TorrentFile::get_info_key() const {
   return transcibe.find("info")->second.get_encode();
 }
