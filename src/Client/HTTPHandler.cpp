@@ -19,11 +19,10 @@ void HTTPHandler::escape_byte_string(std::string& url) {
   url.replace(url.begin(), url.end(), escaped_string);
 }
 
-CURL* HTTPHandler::new_easy(network_data& user_field, std::string_view url) {
+CURL* HTTPHandler::new_easy(network_data& user_field) {
   CURL* newE = curl_easy_init();
   curl_easy_setopt(newE, CURLOPT_WRITEFUNCTION, easy_callback);
   curl_easy_setopt(newE, CURLOPT_WRITEDATA, &user_field);
-  curl_easy_setopt(newE, CURLOPT_URL , url);
   return newE;
 }
 

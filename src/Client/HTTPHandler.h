@@ -28,7 +28,7 @@ class HTTPHandler {
 public:
   HTTPHandler();
   ~HTTPHandler();
-  static CURL* new_easy(network_data&, std::string_view);
+  static CURL* new_easy(network_data&);
   static void escape_byte_string(std::string&);
   void add_handle(CURL*);
   unsigned rmv_handle(CURL*);
