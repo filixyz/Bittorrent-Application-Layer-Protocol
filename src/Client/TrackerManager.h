@@ -2,57 +2,88 @@
 #define TRACKER_MAN
 
 #include "HTTPHandler.h"
+#include "UDPHandler.h"
 #include "TorrentFile.h"
 #include <curl/curl.h>
 #include <chrono>
 
-struct Tracker {
-private:
+class Tracker {
   struct network {
     CURL* connection;
     network_data data;
-    bool is_http_not_udp;
   };
   struct time {
-    std::chrono::seconds min_interval{-1};
-    std::chrono::seconds interval{-1};
-    std::chrono::time_point<std::chrono::steady_clock>
-      last_transaction_tp = std::chrono::steady_clock::now();
+    int min_interval{-1};
+    int interval{-1};
+    int min_timer_fd;
+    int timer_fd;
+  };
+  struct bools {
+    // protocol flag
+    bool is_http_not_udp;
+    // tracker server state flags
+    bool active_flag=true;
+    bool update_flag=false;
+    // shutdown determining flag
+    bool requeueable=true;
+    // timer description flag
+    bool only_one_timer=false;
+    bool interruptible=true;
   };
 public:
   Tracker(std::string);
   const std::string url;
+
+  bools bool_set;
+  network net_set;
+  time time_set;
+
   std::string tracker_id;
-  network net_d;
-  time time_d;
+  int queue_index=-1;
+  unsigned failure_count=0;
 };
 
 enum class tracker_event:short {
-  started=0, stopped=1, completed=2, update=3
+  started=0, stopped=1, completed=2, update=3, normal
 };
 
 class TrackerManager {
-  HTTPHandler http;
-  const TorrentFile& torrent;
   struct trkr_context_t {
     unsigned uploaded=0; unsigned downloaded=0;
     unsigned left; int compact=1;
-    std::string event="start";
+    tracker_event event=tracker_event::normal;
   };
-  trkr_context_t tracker_context;
-  std::vector<Tracker> tracker_connections;
-  unsigned listening_port;
-  std::string info_hash_byte;
+  struct protocol_queue_t {
+    std::vector<Tracker*> http;
+    std::vector<Tracker*> udp;
+    void populate(std::vector<Tracker>&);
+    void enqueue(Tracker*);
+    void dequeue(Tracker*);
+  };
+  struct protocol_handle_t {
+    HTTPHandler http;
+    UDPHandler udp;
+    protocol_handle_t() = default;
+  };
   std::array<std::string, 4> event_strings {
     "&event=started", "&event=stopped", "&event=completed", ""
   };
 
+  int epoll_fd;
+  protocol_handle_t protocol;
+  const TorrentFile& torrent;
+  trkr_context_t tracker_context;
+  std::vector<Tracker> tracker_connections;
+  protocol_queue_t protocol_queue;
+  unsigned listening_port;
+  std::string info_hash_byte;
+
   std::string get_request_params();
   void initiatlize_trackers(std::vector<std::string_view>);
-  void set_announce_url_for_http_trackers(tracker_event);
+  void set_announce_url_for_http_tracker(Tracker&, tracker_event);
+  void queue_in_http_requests_auto();
   void set_announce_url_for_udp_trackers();
-  void queue_in_udp_requests();
-  void queue_in_http_requests(tracker_event);
+  void queue_in_udp_requests_auto();
   void send_requests();
   void parse_responses();
   void feed_peer_manager();
@@ -60,8 +91,9 @@ class TrackerManager {
 public:
   TrackerManager(TorrentFile&, unsigned);
   void announce();
-  void announce(tracker_event);
-  void update_context();
+  void reannounce();
+  void update_context(unsigned, unsigned);
   void scrape_trackers();
 };
+
 #endif

@@ -1,30 +1,21 @@
 #ifndef CLIENT
 #define CLIENT
-#include "DownloadManager.h"
+#include "TransferManager.h"
 #include "FileManager.h"
 #include "PeerManager.h"
 #include "TorrentFile.h"
 #include "TrackerManager.h"
 
-class BClient_Instance {
-  const TorrentFile &file;
-  const std::string magnet_url;
-  bool initialization_already_done;
-  bool download_complete;
-  bool seeding;
-  TrackerManager tracker_man;
-  PeerManager peer_man;
-  DownloadManager down_man;
-  FileManager file_man;
+class Client {
 
 public:
-  BClient_Instance(TorrentFile &);
-  BClient_Instance() = delete;
-  BClient_Instance(const BClient_Instance &) = delete;
-  BClient_Instance &operator=(const BClient_Instance &) = delete;
-  BClient_Instance(BClient_Instance &&) = delete;
-  BClient_Instance &&operator=(BClient_Instance &&) = delete;
-  ~BClient_Instance();
+  Client(TorrentFile &);
+  Client() = delete;
+  Client(const Client &) = delete;
+  Client &operator=(const Client &) = delete;
+  Client(Client &&) = delete;
+  Client &&operator=(Client &&) = delete;
+  ~Client();
   void start() const;
   void resume() const;
   void pause() const;

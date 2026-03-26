@@ -26,8 +26,8 @@ CURL* HTTPHandler::new_easy(network_data& user_field) {
   return newE;
 }
 
-void HTTPHandler::add_handle(CURL* handle) {
-  curl_multi_add_handle(handle, handle);
+void HTTPHandler::add_request(request_t request) {
+
 }
 
 size_t HTTPHandler::easy_callback(const char* data, size_t size, size_t datalen,void *user_data) {
@@ -43,9 +43,5 @@ int HTTPHandler::socket_callback(CURL *easy, curl_socket_t s, int what, void *cl
 }
 
 int HTTPHandler::timer_callback(CURLM *multi, long timeout_ms, void *userp) {
-
-}
-
-unsigned HTTPHandler::get() const {
 
 }

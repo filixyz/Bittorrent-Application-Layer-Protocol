@@ -8,10 +8,19 @@
 #include <sys/timerfd.h>
 #include <system_error>
 #include "Constants.h"
+#include <functional>
+//#include "TrackerManager.h
 
 struct network_data {
   std::string data;
   std::size_t size;
+};
+
+struct request_t {
+  CURL* easy_h;
+  void* user_ptr;
+  std::function<void(void*)> do_on_success;
+  std::function<void(void*)> do_on_failure;
 };
 
 class HTTPHandler {
@@ -30,10 +39,8 @@ public:
   ~HTTPHandler();
   static CURL* new_easy(network_data&);
   static void escape_byte_string(std::string&);
-  void add_handle(CURL*);
-  unsigned rmv_handle(CURL*);
-  unsigned get() const;
-  unsigned post() const;
+  void add_request(request_t);
+  void rmv_request(request_t);
   void reset();
 };
 
