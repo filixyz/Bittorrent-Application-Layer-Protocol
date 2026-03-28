@@ -7,6 +7,7 @@
 #include <curl/curl.h>
 #include <curl/multi.h>
 #include <string>
+#include <sys/time.h>
 #include <utility>
 #include <vector>
 #include <sys/epoll.h>
@@ -107,15 +108,27 @@ void do_on_success(void * tracker) {
   // set tracker.active to true
   // set tracker.update to true
   // parse response, update tracker intervals, send peers to peermanager,
-  // if enqueu flag is true, enqueue back
+  // if enqueue flag is true:
+  //  determine if one timer tracker or two timer tracker
+  //  depending on which initialize that fitting timer specifications
+  //  then enqueue back
 }
+
 void do_on_failure(void * tracker) {
   // set tracker.active to false
-  // if enqueue flag is true, enqueue back
+  // if enqueue flag is true:
+  //  will be one timer tracker so initialize its timer specifications
+  //  enqueue back
+}
+
+void disarm_timerfd(int tfd) {
+  struct itimerspec disarm {{0, 0}, {0, 0}};
+  while(timerfd_settime(tfd, TFD_TIMER_ABSTIME, &disarm, nullptr)==-1);
 }
 
 void TrackerManager::queue_in_http_requests_auto() {
-  for (auto* trkr : protocol_queue.http) {
+  //---------- INITIALIZE TIMER SPECIFICATIONS FOR TRACKERS THE PROTOCOL HANDLER JUST HANDLED---------//
+  for (auto trkr : protocol_queue.http) {
     if(trkr==nullptr)
       continue;
     struct itimerspec intervals;
@@ -154,152 +167,111 @@ void TrackerManager::queue_in_http_requests_auto() {
         trkr->bool_set.only_one_timer=true;
       } else {
         trkr->bool_set.only_one_timer=false;
+
         intervals = { .it_interval{0, 0}, .it_value{.tv_sec=trkr->time_set.interval,     .tv_nsec=0} };
         while((timerfd_settime(trkr->time_set.timer_fd, TFD_TIMER_ABSTIME, &intervals, nullptr))==-1);
         trkr->bool_set.interruptible =false;
       }
     }
   }
-  // Value of epoll here should be the number of trackers in http mode * 2;
-  constexpr int SOME_VALUE=100;
-  std::array<struct epoll_event, SOME_VALUE> events;
-  int n = epoll_wait(epoll_fd, events.data(), SOME_VALUE, -1);
-  for(int index=0; index<n; ++index) {
-    Tracker* trkr = reinterpret_cast<Tracker*>(events[index].data.ptr);
-    if(trkr->bool_set.only_one_timer) {
-      if(tracker_context.event==tracker_event::normal || tracker_context.event==tracker_event::update) {
-        //----------NON INTERRUPT MODE HANDLER-----------//
-        // modify curl handle for a start request if update flag is not set else modify
-        // for update request with current context send to protocol to handle
-        // change protocol_queue_index to nullptr
-        // announce and reannoounce is practically the same thing for trackers that
-        // abide to one timer.
-        protocol_queue.dequeue(trkr);
-        if(!trkr->bool_set.update_flag)
-          set_announce_url_for_http_tracker(*trkr, tracker_event::started);
-        else
-          set_announce_url_for_http_tracker(*trkr, tracker_event::update);
-        request_t current_request {trkr->net_set.connection, trkr, do_on_success, do_on_failure};
-        protocol.http.add_request(current_request);
+  //------------------------- TIMER SPECIFICATIONS INITIALIZATION ENDS HERE --------------------------//
+  // handles tracker in normal state
+  if (tracker_context.state == trkr_manager_state::normal) {
+    constexpr int SOME_VALUE=100;
+    std::array<struct epoll_event, SOME_VALUE> events;
+    int n = epoll_wait(epoll_fd, events.data(), SOME_VALUE, -1);
+    for(int index=0; index<n; ++index) {
+    // read event timeout here
+      Tracker* trkr = reinterpret_cast<Tracker*>(events[index].data.ptr);
 
-        //------NON INTERRUPT MODE HANDLER ENDS HERE------//
-      } else {
-        //------------INTERRUPT MODE HANDLER -------------//
-        if(!trkr->bool_set.update_flag && !trkr->bool_set.active_flag) {
-          // Tracker has never been active; not obligated to inform it
-          // set index to nullptr
-          // don't queue into protocol
-          trkr->bool_set.requeueable=false;
-          protocol_queue.dequeue(trkr);
-        }
-        if(trkr->bool_set.update_flag) {
-          // tracker was once active or is active, obligated to try informing it we are out of the swarm
-          // set index to nullptr set curl url to reflect current context
-          // set do not reinsert flag queue into protocol
-          protocol_queue.dequeue(trkr);
-          set_announce_url_for_http_tracker(*trkr, tracker_context.event);
-          trkr->bool_set.requeueable=false;
-          request_t current_request {trkr->net_set.connection, trkr, do_on_success, do_on_failure};
-          protocol.http.add_request(current_request);
-        }
-        //--------INTERRUPT MODE HANDLER ENDS HERE--------//
+      if(!trkr->bool_set.only_one_timer && !trkr->bool_set.interruptible) {
+        trkr->bool_set.interruptible=true;
+        continue;
       }
-    }
-    if (trkr->bool_set.only_one_timer==false) {
-      if(tracker_context.event==tracker_event::normal || tracker_context.event==tracker_event::update) {
-        if(trkr->bool_set.interruptible == false) { // this is a min_interval so set interrupt flag
-          trkr->bool_set.interruptible=true;
-          continue;
-        }
-        // place code for handling non interrupt mode here
-        protocol_queue.dequeue(trkr);
-        if(!trkr->bool_set.update_flag)
-          set_announce_url_for_http_tracker(*trkr, tracker_event::started);
-        else
-          set_announce_url_for_http_tracker(*trkr, tracker_event::update);
-        request_t current_request {trkr->net_set.connection, trkr, do_on_success, do_on_failure};
-        protocol.http.add_request(current_request);
-
-      } else {
-        if(trkr->bool_set.interruptible==false) { // this is a min_interval; set interrupt flag; disarm normal timer
-          trkr->bool_set.interruptible=true;
-          struct itimerspec disarm {{0, 0}, {0, 0}};
-          while(timerfd_settime(trkr->time_set.timer_fd, TFD_TIMER_ABSTIME, &disarm, nullptr)==-1);
-        }
-        // place code for handling interrupt mode here
-        if(!trkr->bool_set.update_flag && !trkr->bool_set.active_flag) { // might logically never run.
-          trkr->bool_set.requeueable=false;
-          protocol_queue.dequeue(trkr);
-        }
-        if(trkr->bool_set.update_flag) {
-          protocol_queue.dequeue(trkr);
-          set_announce_url_for_http_tracker(*trkr, tracker_context.event);
-          trkr->bool_set.requeueable=false;
-          request_t current_request {trkr->net_set.connection, trkr, do_on_success, do_on_failure};
-          protocol.http.add_request(current_request);
-        }
-      }
+      protocol_queue.dequeue(trkr);
+      if(!trkr->bool_set.update_state)
+        set_announce_url_for_http_tracker(*trkr, tracker_event::started);
+      else
+        set_announce_url_for_http_tracker(*trkr, tracker_event::update);
+      request_t current_request {trkr->net_set.connection, trkr, do_on_success, do_on_failure};
+      protocol.http.add_request(current_request);
     }
   }
-  // once we out of the loop it should mean that we've handled
-  // a snapshot of trackers that was sent to us either in normal state
-  // update state (reannouncement) or end state (completed or stopping)
-  // but the only recoverable state in all this is the update state.
-  if(tracker_context.event == tracker_event::update) {
+  // handles re-announcement
+  if(tracker_context.state == trkr_manager_state::reannounce) {
     for(Tracker* trkr : protocol_queue.http) {
-      if (trkr != nullptr && !trkr->bool_set.only_one_timer && trkr->bool_set.interruptible) {
+      if (trkr != nullptr && !trkr->bool_set.only_one_timer && trkr->bool_set.interruptible && trkr->bool_set.update_state) {
         // since we are doing what the normal interval would had done we should disarm the main
         // interval timer. so epoll doesnt wake on it
-        struct itimerspec disarm {{0, 0}, {0, 0}};
-        while(timerfd_settime(trkr->time_set.timer_fd, TFD_TIMER_ABSTIME, &disarm, nullptr)==-1);
+        disarm_timerfd(trkr->time_set.timer_fd);
         // then handle non interrupt reannounce
         protocol_queue.dequeue(trkr);
-        if(!trkr->bool_set.update_flag)
-          set_announce_url_for_http_tracker(*trkr, tracker_event::started);
-        else
-          set_announce_url_for_http_tracker(*trkr, tracker_event::update);
+        set_announce_url_for_http_tracker(*trkr, tracker_event::update);
         request_t current_request {trkr->net_set.connection, trkr, do_on_success, do_on_failure};
         protocol.http.add_request(current_request);
       }
     }
-    tracker_context.event = tracker_event::normal;
+    tracker_context.state = trkr_manager_state::normal;
   }
 
-  if(tracker_context.event==tracker_event::completed || tracker_context.event==tracker_event::stopped) {
+  // handles force-re-announcement
+  if (tracker_context.state == trkr_manager_state::force_reannounce) {
     for(Tracker* trkr : protocol_queue.http) {
-      // the below condition satisfies when a trackers
-      // min interval timer has expired in a non interrupt state
-      // (but it's normal timer is till active) so epoll couldn't catch it
-      if (trkr != nullptr && !trkr->bool_set.only_one_timer && trkr->bool_set.interruptible) {
-        // disarm normal interval
-        struct itimerspec disarm {{0, 0}, {0, 0}};
-        while(timerfd_settime(trkr->time_set.timer_fd, TFD_TIMER_ABSTIME, &disarm, nullptr)==-1);
-        // then handle then handle interrupt
-        if(!trkr->bool_set.update_flag && !trkr->bool_set.active_flag) { // might logically never run.
-          trkr->bool_set.requeueable=false;
-          protocol_queue.dequeue(trkr);
-        }
-        if(trkr->bool_set.update_flag) {
-          protocol_queue.dequeue(trkr);
-          set_announce_url_for_http_tracker(*trkr, tracker_context.event);
-          trkr->bool_set.requeueable=false;
-          request_t current_request {trkr->net_set.connection, trkr, do_on_success, do_on_failure};
-          protocol.http.add_request(current_request);
-        }
+      if(trkr != nullptr && trkr->bool_set.update_state) {
+        // disarm normal both timers;
+        disarm_timerfd(trkr->time_set.timer_fd);
+        disarm_timerfd(trkr->time_set.min_timer_fd);
+        // then handle non interrupt reannounce
+        protocol_queue.dequeue(trkr);
+        set_announce_url_for_http_tracker(*trkr, tracker_event::update);
+        request_t current_request {trkr->net_set.connection, trkr, do_on_success, do_on_failure};
+        protocol.http.add_request(current_request);
       }
+    }
+    tracker_context.state = trkr_manager_state::normal;
+  }
+
+  // handles termination event like shutdown or completed
+  if(tracker_context.state == trkr_manager_state::shutdown) {
+    for(Tracker* trkr : protocol_queue.http) {
+      if (trkr == nullptr)
+        continue;
+      // disarm normal both timers;
+      // then handle the handle interrupt
+      if(!trkr->bool_set.update_state) {
+        disarm_timerfd(trkr->time_set.min_timer_fd);
+        trkr->bool_set.requeueable=false;
+        protocol_queue.dequeue(trkr);
+        continue;
+      }
+      disarm_timerfd(trkr->time_set.timer_fd);
+      protocol_queue.dequeue(trkr);
+      tracker_event current_ev = tracker_context.left==0 ? tracker_event::completed: tracker_event::stopped;
+      set_announce_url_for_http_tracker(*trkr, current_ev);
+      trkr->bool_set.requeueable=false;
+      request_t current_request {trkr->net_set.connection, trkr, do_on_success, do_on_failure};
+      protocol.http.add_request(current_request);
     }
   }
 }
+
 void TrackerManager::update_context(unsigned dwn, unsigned upd) {
   tracker_context.downloaded += dwn;
   tracker_context.uploaded   += upd;
   tracker_context.left       -= dwn;
 }
 void TrackerManager::announce() {
-  queue_in_http_requests_auto();
+  while(true) // this should be a boolean flag that shutdowns the tracker manager.
+    queue_in_http_requests_auto();
 }
 void TrackerManager::reannounce() {
-  tracker_context.event = tracker_event::update;
+  tracker_context.state = trkr_manager_state::reannounce;
+}
+void TrackerManager::force_reannounce() {
+  tracker_context.state = trkr_manager_state::force_reannounce;
+}
+void TrackerManager::shutdown() {
+  tracker_context.state = trkr_manager_state::shutdown;
 }
 void TrackerManager::set_announce_url_for_udp_trackers() {}
 void TrackerManager::queue_in_udp_requests_auto() {}

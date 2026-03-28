@@ -22,13 +22,11 @@ class Tracker {
     // protocol flag
     bool is_http_not_udp;
     // tracker server state flags
-    bool active_flag=true;
-    bool update_flag=false;
+    bool active_flag=true; bool update_state=false;
     // shutdown determining flag
     bool requeueable=true;
     // timer description flag
-    bool only_one_timer=false;
-    bool interruptible=true;
+    bool only_one_timer=false; bool interruptible=true;
   };
 public:
   Tracker(std::string);
@@ -43,15 +41,15 @@ public:
   unsigned failure_count=0;
 };
 
-enum class tracker_event:short {
-  started=0, stopped=1, completed=2, update=3, normal
+enum class trkr_manager_state {
+  normal, reannounce, force_reannounce, shutdown
 };
 
 class TrackerManager {
   struct trkr_context_t {
     unsigned uploaded=0; unsigned downloaded=0;
     unsigned left; int compact=1;
-    tracker_event event=tracker_event::normal;
+    trkr_manager_state state= trkr_manager_state::normal;
   };
   struct protocol_queue_t {
     std::vector<Tracker*> http;
@@ -64,6 +62,9 @@ class TrackerManager {
     HTTPHandler http;
     UDPHandler udp;
     protocol_handle_t() = default;
+  };
+  enum class tracker_event:short {
+    started=0, stopped=1, completed=2, update=3,
   };
   std::array<std::string, 4> event_strings {
     "&event=started", "&event=stopped", "&event=completed", ""
@@ -92,6 +93,8 @@ public:
   TrackerManager(TorrentFile&, unsigned);
   void announce();
   void reannounce();
+  void force_reannounce();
+  void shutdown();
   void update_context(unsigned, unsigned);
   void scrape_trackers();
 };
