@@ -3,10 +3,11 @@
 #include <curl/easy.h>
 #include <curl/multi.h>
 
-HTTPHandler::HTTPHandler() {
+HTTPHandler::HTTPHandler(int _epoll_fd) {
   handle = curl_multi_init();
   if (!handle)
-    ;
+    ; //handle error
+  fds.epoll_fd=_epoll_fd;
   curl_multi_setopt(handle, CURLMOPT_SOCKETFUNCTION, socket_callback);
   curl_multi_setopt(handle, CURLMOPT_SOCKETDATA, &fds);
   curl_multi_setopt(handle, CURLMOPT_TIMERFUNCTION, timer_callback);
@@ -29,6 +30,14 @@ CURL* HTTPHandler::new_easy(network_data& user_field) {
 void HTTPHandler::add_request(request_t request) {
 
 }
+void HTTPHandler::rmv_request(request_t request) {
+
+}
+
+void HTTPHandler::drive() {
+  // handle networks events in the supplied
+  // epoll fd the driving class/function provided
+}
 
 size_t HTTPHandler::easy_callback(const char* data, size_t size, size_t datalen,void *user_data) {
   network_data *mem = (network_data *)(user_data);
@@ -39,9 +48,7 @@ size_t HTTPHandler::easy_callback(const char* data, size_t size, size_t datalen,
 }
 
 int HTTPHandler::socket_callback(CURL *easy, curl_socket_t s, int what, void *clientp, void *socketp) {
-
 }
 
 int HTTPHandler::timer_callback(CURLM *multi, long timeout_ms, void *userp) {
-
 }

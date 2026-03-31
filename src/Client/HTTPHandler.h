@@ -25,22 +25,19 @@ struct request_t {
 
 class HTTPHandler {
   CURLM *handle;
-  struct file_descriptors {
-    int epoll_fd;
-    int timer_fd;
-  };
-  file_descriptors fds;
+  struct fds_t { int epoll_fd=-1; int timer_fd=-1;} fds;
   static size_t easy_callback(const char* data, size_t size, size_t datalen,void *user_data);
   static int socket_callback(CURL *easy, curl_socket_t s, int what, void *clientp, void *socketp);
   static int timer_callback(CURLM *multi, long timeout_ms, void *userp);
 
 public:
-  HTTPHandler();
+  HTTPHandler(int);
   ~HTTPHandler();
   static CURL* new_easy(network_data&);
   static void escape_byte_string(std::string&);
   void add_request(request_t);
   void rmv_request(request_t);
+  void drive();
   void reset();
 };
 
