@@ -31,6 +31,9 @@
 #include <variant>
 #include <vector>
 
+// NOTE; in cass of bug; changed function definition of decoders
+// from ifstream& type paramaters to istream&
+
 enum class Bendata_init_flag { integer, string, dictionary, list };
 using ben_t = char;
 constexpr ben_t BEN_DIC_T = 'd';
@@ -61,10 +64,10 @@ public:
   ben_t get_t() const;
   const std::string &get_encode() const;
 
-  friend bool bendecode_integer(std::ifstream &, Bendata &);
-  friend bool bendecode_string(std::ifstream &, Bendata &);
-  friend bool bendecode_dictionary(std::ifstream &, Bendata &);
-  friend bool bendecode_list(std::ifstream &, Bendata &);
+  friend bool bendecode_integer(std::istream &, Bendata &);
+  friend bool bendecode_string(std::istream &, Bendata &);
+  friend bool bendecode_dictionary(std::istream &, Bendata &);
+  friend bool bendecode_list(std::istream &, Bendata &);
 
   static std::string encode(int);
   static std::string encode(const std::string&);
@@ -85,8 +88,8 @@ const T &Bendata::get_data() const {
   return value;
 }
 
-bool get_bendata_from_stream(std::ifstream &, Bendata &);
-Bendata bendecode_from_file(std::ifstream &);
+bool get_bendata_from_stream(std::istream &, Bendata &);
+Bendata bendecode_from_file(std::istream &);
 
 namespace ben {
 using str = std::string;

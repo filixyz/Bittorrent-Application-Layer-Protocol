@@ -14,7 +14,7 @@ bool noexcept_stoi(std::string str, int &result) {
   return true;
 }
 
-bool bendecode_string(std::ifstream &of, Bendata &data) {
+bool bendecode_string(std::istream &of, Bendata &data) {
   char c;
   std::string size;
   while (of >> c && c != ':')
@@ -35,13 +35,13 @@ bool bendecode_string(std::ifstream &of, Bendata &data) {
 
 // Reads an expected bencoder delimeter
 // then discards it
-inline char read_delimeter(std::ifstream &of) {
+inline char read_delimeter(std::istream &of) {
   char c;
   of >> c;
   return c;
 }
 
-bool bendecode_integer(std::ifstream &of, Bendata &data) {
+bool bendecode_integer(std::istream &of, Bendata &data) {
   read_delimeter(of);
   std::string number_str;
   char c;
@@ -60,13 +60,13 @@ bool bendecode_integer(std::ifstream &of, Bendata &data) {
 //    peeks into stream and if a whitsepace is there
 //    it reads "skips" it by reading it and discarding
 //    its value.
-auto peek_skipws(std::ifstream &of) {
+auto peek_skipws(std::istream &of) {
   while (std::iswspace(of.peek()))
     of.get(); // read that whitespace
   return of.peek();
 }
 
-bool get_bendata_from_stream(std::ifstream &of, Bendata &data) {
+bool get_bendata_from_stream(std::istream &of, Bendata &data) {
   switch (peek_skipws(of)) {
   case BEN_NUM_T:
     if (!bendecode_integer(of, data))
@@ -88,7 +88,7 @@ bool get_bendata_from_stream(std::ifstream &of, Bendata &data) {
   return true;
 }
 
-bool bendecode_list(std::ifstream &of, Bendata &data) {
+bool bendecode_list(std::istream &of, Bendata &data) {
   Bendata new_list{Bendata_init_flag::list};
   ben::lis &ref_list = new_list.get_data<ben::lis>();
   new_list.bencode += read_delimeter(of);
@@ -104,13 +104,13 @@ bool bendecode_list(std::ifstream &of, Bendata &data) {
   return true;
 }
 
-bool get_benkey_from_stream(std::ifstream &of, Bendata &key) {
+bool get_benkey_from_stream(std::istream &of, Bendata &key) {
   if (!bendecode_string(of, key))
     return error_with_reason("get_benkey failed: string");
   return true;
 }
 
-bool bendecode_dictionary(std::ifstream &of, Bendata &data) {
+bool bendecode_dictionary(std::istream &of, Bendata &data) {
   Bendata new_dict{Bendata_init_flag::dictionary};
   ben::dic &ref_dic = new_dict.get_data<ben::dic>();
   new_dict.bencode += read_delimeter(of);
@@ -129,7 +129,7 @@ bool bendecode_dictionary(std::ifstream &of, Bendata &data) {
   return true;
 }
 
-Bendata bendecode_from_file(std::ifstream &file) {
+Bendata bendecode_from_file(std::istream &file) {
   file >> std::noskipws;
   Bendata parsed;
   if (!get_bendata_from_stream(file, parsed))
