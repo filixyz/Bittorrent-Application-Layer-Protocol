@@ -38,6 +38,10 @@ CURL* HTTPHandler::new_easy(network_data& user_field) {
   CURL* newE = curl_easy_init();
   curl_easy_setopt(newE, CURLOPT_WRITEFUNCTION, easy_callback);
   curl_easy_setopt(newE, CURLOPT_WRITEDATA, &user_field);
+  curl_easy_setopt(newE, CURLOPT_CONNECTTIMEOUT, 5); // time limit for connection to tracker; aborts transaction if limit approached
+  curl_easy_setopt(newE, CURLOPT_SERVER_RESPONSE_TIMEOUT, 5); // time limit for connected tracker response: aborts transaction is limit approached
+  curl_easy_setopt(newE, CURLOPT_FOLLOWLOCATION, true); // might handle redirecting trackers
+  curl_easy_setopt(newE, CURLOPT_TIMEOUT, 10); // total time before transaction is terminated: both connection phase and response phase (i think)
   return newE;
 }
 
@@ -67,7 +71,7 @@ void HTTPHandler::chk_finished(CURLM* multi) {
 
     if(result == CURLE_OK && http_res_code==200)
       request->do_on_success();
-    else // Block might treat trackers with redirects (http response code 3XX) as failures
+    else // Else block might treat trackers with redirects (http response code 3XX) as failures
       request->do_on_failure();
 
     curl_multi_remove_handle(multi, easy);

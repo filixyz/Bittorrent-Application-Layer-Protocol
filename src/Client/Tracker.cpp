@@ -33,31 +33,34 @@ void TrackerManager::Tracker::do_on_success() {
   nest.failure_count=0;
   nest.failed_url_index=-1;
   nest.bool_set.active_flag=true;
-  nest.bool_set.update_state=true;  // !!!potential bug!!! what if successful at backend level (http-200ok/udp-whatevs) but contains "failure reason" key?
+  // nest.bool_set.update_state=true;  // !!!bug!!! what if successful at backend level (http-200ok/udp-whatevs) but contains "failure reason" key?
 
   // place bendecode parse and tracker timer updates here
   // send peers to peermanager here
 
-  Bendata parse;
-  std::istringstream bencode(user_space.data);
-  get_bendata_from_stream(bencode, parse);
-  ben::dic& parsed_dict = parse.get_data<ben::dic>();
-
-  if (parsed_dict.contains("failure reason"))
-    std::cout << parsed_dict["failure reason"];
-  if (parsed_dict.contains("warning message"))
-    std::cout << parsed_dict["warning message"];
-  if (parsed_dict.contains("interval"))
-    nest.time_set.interval = parsed_dict["interval"].get_data<ben::num>();
-  if (parsed_dict.contains("min interval"))
-    nest.time_set.min_interval = parsed_dict["min interval"].get_data<ben::num>();
-  else
-    nest.time_set.min_interval = 0;
-  if (parsed_dict.contains("tracker id"))
-    nest.tracker_id = parsed_dict["tracker id"].get_data<ben::str>();
-  if (parsed_dict.contains("peers"))
-    std::cout << parsed_dict["peers"];
-
+  if (!user_space.data.empty()) {
+    Bendata parse;
+    std::istringstream bencode(user_space.data);
+    get_bendata_from_stream(bencode, parse);
+    ben::dic& parsed_dict = parse.get_data<ben::dic>();
+    // ----------> EXCEPTION MAY HAPPEN HERE IF BENCODE IS ERRORNEOUS.
+    if (parsed_dict.contains("failure reason"))
+      std::cout << parsed_dict["failure reason"];
+    else
+      nest.bool_set.update_state=true;
+    if (parsed_dict.contains("warning message"))
+      std::cout << parsed_dict["warning message"];
+    if (parsed_dict.contains("interval"))
+      nest.time_set.interval = parsed_dict["interval"].get_data<ben::num>();
+    if (parsed_dict.contains("min interval"))
+      nest.time_set.min_interval = parsed_dict["min interval"].get_data<ben::num>();
+    else
+      nest.time_set.min_interval = 0;
+    if (parsed_dict.contains("tracker id"))
+      nest.tracker_id = parsed_dict["tracker id"].get_data<ben::str>();
+    if (parsed_dict.contains("peers"))
+      std::cout << parsed_dict["peers"];
+  }
 
   if(nest.time_set.min_interval==0 || nest.time_set.min_interval==-1)
     nest.bool_set.only_one_timer=true;
@@ -80,7 +83,7 @@ void TrackerManager::Tracker::do_on_failure() {
   // failsafe for unimplemeneted udp protocol mechanism
   // once implemented remove `seek_to_next_url()` from
   // while loop; it should run only once.
-  while (http_mode==false) seek_to_next_url();                    // UDP FAILSAFE
+  while (http_mode==false) seek_to_next_url();                    // UDP FAILSAFE: BUG!: Might seek forever if tracker has no http url
   nest.time_set.interval = retry_for_new_url;
   if (nest.current_announce_url_index==nest.failed_url_index) {
     nest.failure_count++;
