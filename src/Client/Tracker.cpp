@@ -33,7 +33,7 @@ void TrackerManager::Tracker::do_on_success() {
   nest.failure_count=0;
   nest.failed_url_index=-1;
   nest.bool_set.active_flag=true;
-  nest.bool_set.update_state=true;
+  nest.bool_set.update_state=true;  // !!!potential bug!!! what if successful at backend level (http-200ok/udp-whatevs) but contains "failure reason" key?
 
   // place bendecode parse and tracker timer updates here
   // send peers to peermanager here

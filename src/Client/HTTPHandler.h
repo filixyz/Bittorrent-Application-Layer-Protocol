@@ -12,39 +12,52 @@
 #include <ev++.h>
 
 class HTTPHandler {
-  struct network_data {
-    std::string data; std::size_t size;
-  };
 
-  CURLM *handle;
+  CURLM *multi;
   ev::dynamic_loop& event_loop;
   ev::timer curl_timer;
+  int actives;
 
-  static size_t easy_callback(const char* data, size_t size, size_t datalen,void *user_data);
-  static int socket_callback(CURL *easy, curl_socket_t s, int what, void *clientp, void *socketp);
-  static int timer_callback(CURLM *multi, long timeout_ms, void *userp);
+  struct network_data;
+
   static CURL* new_easy(network_data&);
+  static size_t easy_callback(const char* data, size_t size, size_t datalen,void *user_data);
+  static int timer_callback(CURLM *multi, long timeout_ms, void *userp);
+  static int socket_callback(CURL *easy, curl_socket_t s, int what, void *clientp, void *socketp);
+  static void remove_socket(ev::io*);
+  static void add_socket(curl_socket_t, ev::io*, CURL*, int, HTTPHandler*);
+  static void set_socket(curl_socket_t, ev::io*, int);
+  static void chk_finished(CURLM*);
+
+  static void drive_sockt(ev::io&, int);
+  static void drive_timer(ev::timer&, int);
 
 public:
   class HTTPRequest;
-  static void escape_byte_string(std::string&);
   HTTPHandler(ev::dynamic_loop&);
   ~HTTPHandler();
+  static void escape_byte_string(std::string&);
   void add_request(HTTPRequest*);
   void rmv_request(HTTPRequest*);
-  void drive_sockt(ev::io&, int);
-  void drive_timer(ev::timer&, int);
   void start_protocol();
   void reset();
 };
 
+struct HTTPHandler::network_data {
+  std::string data; std::size_t size;
+};
+
 class HTTPHandler::HTTPRequest {
+
   virtual void do_on_success()=0;
   virtual void do_on_failure()=0;
+
 public:
   CURL* connection;   network_data user_space;
+  ev::io sock_wtchr;
   HTTPRequest();      virtual ~HTTPRequest();
   friend HTTPHandler;
+
 };
 
 using HTTPRequest = class HTTPHandler::HTTPRequest;
