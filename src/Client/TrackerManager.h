@@ -41,6 +41,10 @@ class TrackerManager {
   bool running=true;
   int trkrs_in_trkrspace;
 
+  // Test stuffs
+  ev::timer test_timer;
+  void test_timer_clbk(ev::timer&, int);
+
   void initialize_info_hash_byte();
   void initialize_tracker_context();
   void initiatlize_trackers(std::vector<std::string_view>);
@@ -75,6 +79,7 @@ class TrackerManager {
 
 public:
   TrackerManager(TorrentFile&, unsigned);
+  void test(int);
   void start_tracker_manager();
   void start();
   void reannounce();
@@ -100,15 +105,15 @@ class TrackerManager::Tracker: public HTTPRequest {
     bools       bool_set;             time        time_set;
     std::string tracker_id;           unsigned    failure_count=0;
     Tracker**   queue_ptr;            std::vector<std::string> announce_urls;
-    int current_announce_url_index;   int* trkrs_in_trkrspace_ref;
-    int failed_url_index=-1;
+    size_t current_announce_url_index;   int* trkrs_in_trkrspace_ref;
+    size_t failed_url_index=-1;
   };
   void do_on_success() override;      void do_on_failure() override;
   void send_to_protocol_space();      void return_to_manager_space();
   void seek_to_next_url();            bool http_mode=false;
 
 public:
-  Tracker()=delete;
+  Tracker()=default; // changed this
   Tracker(Tracker&&)=delete;
   Tracker&& operator=(Tracker&&)=delete;
   Tracker& operator=(const Tracker&)=delete;

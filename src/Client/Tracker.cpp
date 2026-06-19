@@ -30,6 +30,7 @@ TrackerManager::Tracker::Tracker(const Tracker& other) {
 }
 
 void TrackerManager::Tracker::do_on_success() {
+  std::cout << "tracker succeeded\n";
   nest.failure_count=0;
   nest.failed_url_index=-1;
   nest.bool_set.active_flag=true;
@@ -76,6 +77,7 @@ void TrackerManager::Tracker::do_on_success() {
 }
 
 void TrackerManager::Tracker::do_on_failure() {
+  std::cout << "tracker failed\n";
   nest.bool_set.only_one_timer=true;
   int retry_for_new_url = 5;//seconds
   if (nest.failed_url_index==-1)
@@ -83,7 +85,7 @@ void TrackerManager::Tracker::do_on_failure() {
   // failsafe for unimplemeneted udp protocol mechanism
   // once implemented remove `seek_to_next_url()` from
   // while loop; it should run only once.
-  while (http_mode==false) seek_to_next_url();                    // UDP FAILSAFE: BUG!: Might seek forever if tracker has no http url
+  while (http_mode==false) seek_to_next_url();                    // UDP FAILSAFE: BUG!: Might seek forever if tracker has no http url (false alarm)
   nest.time_set.interval = retry_for_new_url;
   if (nest.current_announce_url_index==nest.failed_url_index) {
     nest.failure_count++;
@@ -112,6 +114,6 @@ std::string TrackerManager::Tracker::get_url() {
 void TrackerManager::Tracker::seek_to_next_url() {
   auto& index = ++nest.current_announce_url_index;
   auto& urls  = nest.announce_urls;
-  if (urls[index] == *urls.end()) index=0;
+  if ( index >= urls.size() ) index=0;  // possible bug: int and size_t byte count mismatch :: FIXED
   http_mode = urls[index].starts_with("http") ? true : false;
 }

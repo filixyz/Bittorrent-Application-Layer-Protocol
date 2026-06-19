@@ -3,6 +3,8 @@
 #include "HTTPHandler.h"
 #include "Hasher.h"
 #include <array>
+#include <cassert>
+#include <chrono>
 #include <cstdlib>
 #include <ctime>
 #include <curl/curl.h>
@@ -10,6 +12,7 @@
 #include <ev++.h>
 #include <string>
 #include <sys/time.h>
+#include <thread>
 #include <unistd.h>
 #include <utility>
 #include <vector>
@@ -54,17 +57,33 @@ void TrackerManager::initiatlize_trackers(std::vector<std::string_view> trackers
 
 
 void TrackerManager::populate_manager_space() {
+
+  std::cout << "populate_manager_space domain\n";
+
   for(auto& pair: tracker_connections) {
     auto& trkr = pair.second;
 
+    std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    std::cout << "new tracker\t";
+    std::cout << trkr.get_url();
+
+    size_t remain = size_t{55} - trkr.get_url().length() - size_t{1};
+    for (size_t i=0; i != remain; ++i)
+      std::cout << ' ';
+
     if (trkr.nest.bool_set.has_http==false) {               // failsafe against upd protocol (remove if udp protocol implemented)
-      --trkrs_in_trkrspace; continue;                       // failsafe against upd protocol (remove if udp protocol implemented)
+      --trkrs_in_trkrspace;                                  // failsafe against upd protocol (remove if udp protocol implemented)
+      std::cout << "\t This tracker has no http counterpart\n";
+      continue;
     }                                                       // failsafe against upd protocol (remove if udp protocol implemented)
     while (trkr.http_mode==false) trkr.seek_to_next_url();  // failsafe against udp protocol (remove if udp protocol implemented)
-
+    std::cout << "\n\tseek to http url successful -> " << trkr.get_url() << '\n';
     manager_space.push_back(&trkr);
+    std::cout << "\tpushed to manager space\n";
     trkr.nest.queue_ptr = &manager_space.back();
+    std::cout << "\ttrackers queue ptr stored successfully within itself\n";
   }
+  std::cout << "populate manager space has exited forloop\n";
   manager_space.shrink_to_fit();
 }
 
@@ -96,6 +115,7 @@ TrackerManager::TrackerManager(TorrentFile& torrent_, unsigned psp_)
   initialize_tracker_context();
   initiatlize_trackers(torrent.get_tracker_urls());
   initialize_state_system();
+  protocol.http.start_backend();
 }
 
 std::string TrackerManager::get_request_params()
@@ -166,15 +186,19 @@ void TrackerManager::tracker_timeout_handler(ev::timer& timer, int revents) {
 
 inline void TrackerManager::block_until_ready_events_then_handle_for_transition() {
   event_loop.run(ev::ONCE);
+  std::cout << "An event got triggered here\n";
 }
 
 void TrackerManager::state_change_handler(ev::io& watcher, int revents) {
   uint64_t buffer;
   eventfd_read(state_change_signal_fd, &buffer);
+  std::cout << "event handled\n";
 }
 
 void TrackerManager::start_state() {
+  std::cout<< "Starting state\n";
   populate_manager_space();
+  std::cout << "manager space populated\n";    // CHECKPOINT: VALID
   for(auto trkr : manager_space) {
     trkr->nest.bool_set.requeueable = true;
     if(trkr->nest.time_set.interval==-1 && trkr->nest.time_set.min_interval==-1) { // first time tracker will be queued
@@ -192,10 +216,12 @@ void TrackerManager::start_state() {
     if(trkr->nest.bool_set.only_one_timer==false)
       arm_timer(trkr->nest.time_set.min_timer_w, trkr->nest.time_set.min_interval);
   }
+  std::cout<< "Starting ended\n";
   current_state=&TrackerManager::normal_state;
 }
 
 void TrackerManager::normal_state() {
+  std::cout << "Normal state\n";
   block_until_ready_events_then_handle_for_transition();
 }
 
@@ -261,15 +287,18 @@ void TrackerManager::inactive_state() {
 }
 
 void TrackerManager::start_tracker_manager() {
+  std::cout << "tracker service is online\n";
   current_state = &TrackerManager::inactive_state;
   while(running) {
     (this->*current_state)();
   }
+  std::cout << "tracker service is offline\n";
 };
 
 void TrackerManager::start() {
   if(current_state!=&TrackerManager::inactive_state)
     return;
+  std::cout << "Starting sequence initiated\n";
   current_state=&TrackerManager::start_state;
   eventfd_write(state_change_signal_fd, 1);
 }
@@ -296,4 +325,13 @@ void TrackerManager::update_context(unsigned dwn, unsigned upd) {
   tracker_context.downloaded += dwn;
   tracker_context.uploaded   += upd;
   tracker_context.left       -= dwn;
+}
+
+
+void TrackerManager::test_timer_clbk(ev::timer&, int) { running=false; }
+
+void TrackerManager::test(int seconds) {
+  std::cout << "== Test started ==\n";
+  start_tracker_manager();
+  std::cout << "== Test ended ==\n";
 }
