@@ -51,9 +51,9 @@ CURL* HTTPHandler::new_easy(network_data& user_field) {
 void HTTPHandler::add_request(HTTPRequest* request) {
   request->sock_wtchr.set(event_loop);
   curl_multi_add_handle(multi, request->connection);
-  char url[100]; url[99] = '\0';
-  curl_easy_getinfo(request->connection, CURLINFO_EFFECTIVE_URL, url);
-  std::cout << "Request: " << url << '\n';
+  //char url[100]; url[99] = '\0';
+  //curl_easy_getinfo(request->connection, CURLINFO_EFFECTIVE_URL, url);
+  //std::cout << "Request: " << url << '\n';
 }
 
 void HTTPHandler::rmv_request(HTTPRequest* request) {

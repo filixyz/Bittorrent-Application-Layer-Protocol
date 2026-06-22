@@ -12,8 +12,8 @@ class TrackerManager {
 
   class Tracker;
   struct trkr_context_t {
-    unsigned uploaded=0;  unsigned downloaded=0;
-    unsigned left;        int compact=1;
+    unsigned uploaded{0};  unsigned downloaded{0};
+    unsigned left{};        int compact{1};
   };
   struct protocol_handle_t {
     HTTPHandler http;     UDPHandler udp;
@@ -57,7 +57,7 @@ class TrackerManager {
   void static disarm_timer(ev::timer&);
   int  static get_retry_seconds(const Tracker*);
 
-  void tracker_timeout_handler(ev::timer& timer, int revents);
+  void static tracker_timeout_handler(ev::timer& timer, int revents);
   void state_change_handler(ev::io&, int revents);
   void block_until_ready_events_then_handle_for_transition();
 
@@ -91,26 +91,26 @@ public:
 
 class TrackerManager::Tracker: public HTTPRequest {
   struct time {
-    int min_interval{-1};             int interval{-1};
-    ev::timer min_timer_w ;           ev::timer timer_w;
+    int min_interval{-1};               int interval{-1};
+    ev::timer min_timer_w{} ;           ev::timer timer_w{};
   };
   struct bools {
     // bool `has_http` is a UDP failafe (Tracker should be protocol agnostic)
     // remove (along with depenents) when UDP protocol mechanims is implemented
-    bool has_http=false;              bool active_flag=true;
-    bool update_state=false;          bool requeueable=true;
-    bool only_one_timer=true;         bool interruptible=true;
+    bool has_http=false;                bool active_flag=true;
+    bool update_state=false;            bool requeueable=true;
+    bool only_one_timer=true;           bool interruptible=true;
   };
   struct data_nest_t {
-    bools       bool_set;             time        time_set;
-    std::string tracker_id;           unsigned    failure_count=0;
-    Tracker**   queue_ptr;            std::vector<std::string> announce_urls;
-    size_t current_announce_url_index;   int* trkrs_in_trkrspace_ref;
-    size_t failed_url_index=-1;
+    bools       bool_set;               time        time_set;
+    std::string tracker_id;             unsigned    failure_count=0;
+    Tracker**   queue_ptr;              std::vector<std::string> announce_urls;
+    size_t current_announce_url_index;  int* trkrs_in_trkrspace_ref;
+    size_t failed_url_index=-1;         TrackerManager* manager;
   };
-  void do_on_success() override;      void do_on_failure() override;
-  void send_to_protocol_space();      void return_to_manager_space();
-  void seek_to_next_url();            bool http_mode=false;
+  void do_on_success() override;        void do_on_failure() override;
+  void send_to_protocol_space();        void return_to_manager_space();
+  void seek_to_next_url();              bool http_mode=false;
 
 public:
   Tracker()=default; // changed this

@@ -14,7 +14,7 @@
  * than a design one.
  */
 
-TrackerManager::Tracker::Tracker(std::string url) : HTTPRequest() {
+TrackerManager::Tracker::Tracker(std::string url) : HTTPRequest(), nest{} {
   nest.announce_urls.push_back(std::move(url));
   nest.current_announce_url_index=0;
 };

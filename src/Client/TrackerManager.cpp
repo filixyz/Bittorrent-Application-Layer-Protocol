@@ -23,7 +23,7 @@ TrackerManager::protocol_handle_t::protocol_handle_t(ev::dynamic_loop& ev_loop) 
 
 void TrackerManager::protocol_handle_t::add_request(Tracker* trkr) {
  if(trkr->http_mode)
-   http.add_request(trkr);
+   ;//http.add_request(trkr);
  else
 // udp.add_request(trkr);
   ;
@@ -62,6 +62,7 @@ void TrackerManager::populate_manager_space() {
 
   for(auto& pair: tracker_connections) {
     auto& trkr = pair.second;
+    trkr.nest.manager = this;
 
     std::this_thread::sleep_for(std::chrono::milliseconds{100});
     std::cout << "new tracker\t";
@@ -110,12 +111,17 @@ void TrackerManager::initialize_state_system() {
 }
 
 TrackerManager::TrackerManager(TorrentFile& torrent_, unsigned psp_)
-  : event_loop(initialize_libev()) ,protocol(event_loop), torrent(torrent_), listening_port(psp_) {
+  : event_loop(initialize_libev()) ,protocol(event_loop), torrent(torrent_), tracker_context(), listening_port(psp_) {
   initialize_info_hash_byte();
   initialize_tracker_context();
   initiatlize_trackers(torrent.get_tracker_urls());
   initialize_state_system();
-  protocol.http.start_backend();
+  //protocol.http.start_backend();
+  std::cout << "\nTorrent is file: " << torrent.torrent_is_file() << " Torrent size: " << torrent.get_download_size() << '\n';
+  std::cout <<" Tracker context: Downloaded: " << tracker_context.downloaded << "  left " << tracker_context.left << " uploaded " << tracker_context.uploaded << " compact: "
+    << tracker_context.compact <<'\n';
+  std::cout << info_hash_byte << '\n';
+  std::cout << event_strings[2] << '\n';
 }
 
 std::string TrackerManager::get_request_params()
@@ -145,7 +151,8 @@ std::string TrackerManager::get_request_params()
 
 void TrackerManager::set_announce_url_for_tracker(Tracker& trkr, tracker_event event) {
   std::string tracker_id = trkr.nest.tracker_id.empty() ? "" : std::string{'&'}.append("trackerid=").append(trkr.nest.tracker_id);
-  std::string request_url = trkr.get_url() + '?' + get_request_params() + tracker_id + event_strings[static_cast<short>(event)];
+  std::string request_url = trkr.get_url() + '?' + get_request_params() + tracker_id + event_strings[static_cast<size_t>(event)];
+  std::cout << request_url << '\n';
   if(trkr.http_mode)
     curl_easy_setopt(trkr.connection, CURLOPT_URL, request_url.data());
   else
@@ -176,23 +183,22 @@ void TrackerManager::tracker_timeout_handler(ev::timer& timer, int revents) {
     trkr->nest.bool_set.interruptible=true;
     return;
   }
-  if(!trkr->nest.bool_set.update_state)
-    set_announce_url_for_tracker(*trkr, tracker_event::started);
+  if(!trkr->nest.bool_set.update_state) {
+    trkr->nest.manager->set_announce_url_for_tracker(*trkr, tracker_event::started);
+  }
   else
-    set_announce_url_for_tracker(*trkr, tracker_event::update);
+    trkr->nest.manager->set_announce_url_for_tracker(*trkr, tracker_event::update);
   trkr->send_to_protocol_space();
-  protocol.add_request(trkr);
+  trkr->nest.manager->protocol.add_request(trkr);
 }
 
 inline void TrackerManager::block_until_ready_events_then_handle_for_transition() {
   event_loop.run(ev::ONCE);
-  std::cout << "An event got triggered here\n";
 }
 
 void TrackerManager::state_change_handler(ev::io& watcher, int revents) {
   uint64_t buffer;
   eventfd_read(state_change_signal_fd, &buffer);
-  std::cout << "event handled\n";
 }
 
 void TrackerManager::start_state() {
@@ -205,16 +211,17 @@ void TrackerManager::start_state() {
       trkr->nest.trkrs_in_trkrspace_ref = &trkrs_in_trkrspace;
       trkr->nest.bool_set.only_one_timer = true;
       trkr->nest.time_set.interval=0;
+      trkr->nest.time_set.timer_w.set<&TrackerManager::tracker_timeout_handler> ();
+      trkr->nest.time_set.min_timer_w.set<&TrackerManager::tracker_timeout_handler> ();
       trkr->nest.time_set.timer_w.data=trkr;
-      trkr->nest.time_set.min_timer_w.data=trkr;
-      trkr->nest.time_set.timer_w.set<TrackerManager, &TrackerManager::tracker_timeout_handler> (this);
-      trkr->nest.time_set.min_timer_w.set<TrackerManager, &TrackerManager::tracker_timeout_handler> (this);
+      trkr->nest.time_set.min_timer_w.data=trkr;  // CHECKPOINT: VALID : BUG FIXED.
       arm_timer(trkr->nest.time_set.timer_w, 0.0);  // timer initialized to 1 millisec so it expires quickly
       continue;
     }
     arm_timer(trkr->nest.time_set.timer_w, trkr->nest.time_set.interval);
     if(trkr->nest.bool_set.only_one_timer==false)
       arm_timer(trkr->nest.time_set.min_timer_w, trkr->nest.time_set.min_interval);
+    //std::cout << "Do i ever get here?\n";
   }
   std::cout<< "Starting ended\n";
   current_state=&TrackerManager::normal_state;
