@@ -23,7 +23,7 @@ TrackerManager::protocol_handle_t::protocol_handle_t(ev::dynamic_loop& ev_loop) 
 
 void TrackerManager::protocol_handle_t::add_request(Tracker* trkr) {
  if(trkr->http_mode)
-  http.add_request(static_cast<HTTPRequest*>(trkr));
+  http.add_request(trkr);
  else
 // udp.add_request(trkr);
   ;
@@ -52,6 +52,7 @@ void TrackerManager::initiatlize_trackers(std::vector<std::string_view> trackers
     tag_http_presence(url, tracker_connections[key]);
     current.nest.time_set.min_timer_w.set(event_loop);
     current.nest.time_set.timer_w.set(event_loop);
+    //current.sock_wtchr.set(event_loop);
   }
 }
 

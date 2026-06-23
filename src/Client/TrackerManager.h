@@ -5,6 +5,7 @@
 #include "UDPHandler.h"
 #include "TorrentFile.h"
 #include <chrono>
+#include <cstdint>
 #include <ev++.h>
 #include <unordered_map>
 
@@ -12,8 +13,8 @@ class TrackerManager {
 
   class Tracker;
   struct trkr_context_t {
-    unsigned uploaded{0};  unsigned downloaded{0};
-    unsigned left{};        int compact{1};
+    std::int64_t uploaded{0};  std::int64_t downloaded{0};
+    std::int64_t left{};       int compact{1};
   };
   struct protocol_handle_t {
     HTTPHandler http;     UDPHandler udp;

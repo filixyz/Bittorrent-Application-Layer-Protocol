@@ -51,8 +51,6 @@ CURL* HTTPHandler::new_easy(network_data& user_field) {
 }
 
 void HTTPHandler::add_request(HTTPRequest* request) {
-  char* url{};
-  curl_easy_getinfo(request->connection, CURLINFO_EFFECTIVE_URL, &url);
   request->sock_wtchr.set(event_loop);
   curl_multi_add_handle(multi, request->connection);
 }
@@ -124,6 +122,8 @@ void HTTPHandler::remove_socket(ev::io* socket_watcher) {
 }
 
 void HTTPHandler::add_socket(curl_socket_t fd, ev::io* watcher, CURL* easy, int action, HTTPHandler* httpG) {
+  // from easy derive address of watcher, it should be the private data in easy object
+
   curl_multi_assign(easy, fd, watcher);
   watcher->set<HTTPHandler::drive_sockt>(httpG);
   set_socket(fd, watcher, action);
@@ -147,7 +147,11 @@ void HTTPHandler::set_socket(curl_socket_t fd, ev::io* watcher, int what) {
 int HTTPHandler::socket_callback(CURL *easy, curl_socket_t sockfd, int what, void *clientp, void *socketp) {
   std::cout << "socket callback\n";
   HTTPHandler*  httpG = static_cast<HTTPHandler*>(clientp);
-  ev::io*       socket_watcher = static_cast<ev::io*>(socketp);
+
+  void* private_data{nullptr};
+  curl_easy_getinfo(easy, CURLINFO_PRIVATE, &private_data);
+  ev::io* socket_watcher = &(static_cast<HTTPRequest*>(private_data))->sock_wtchr;
+
   if(what==CURL_POLL_REMOVE) {
     remove_socket(socket_watcher);
     return 0;
