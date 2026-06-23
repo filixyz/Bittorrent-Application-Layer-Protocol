@@ -106,7 +106,7 @@ class TrackerManager::Tracker: public HTTPRequest {
     std::string tracker_id;             unsigned    failure_count=0;
     Tracker**   queue_ptr;              std::vector<std::string> announce_urls;
     size_t current_announce_url_index;  int* trkrs_in_trkrspace_ref;
-    size_t failed_url_index=-1;         TrackerManager* manager;
+    ssize_t failed_url_index=-1;         TrackerManager* manager;
   };
   void do_on_success() override;        void do_on_failure() override;
   void send_to_protocol_space();        void return_to_manager_space();

@@ -23,7 +23,7 @@ TrackerManager::protocol_handle_t::protocol_handle_t(ev::dynamic_loop& ev_loop) 
 
 void TrackerManager::protocol_handle_t::add_request(Tracker* trkr) {
  if(trkr->http_mode)
-   ;//http.add_request(trkr);
+  http.add_request(static_cast<HTTPRequest*>(trkr));
  else
 // udp.add_request(trkr);
   ;
@@ -64,27 +64,24 @@ void TrackerManager::populate_manager_space() {
     auto& trkr = pair.second;
     trkr.nest.manager = this;
 
-    std::this_thread::sleep_for(std::chrono::milliseconds{100});
-    std::cout << "new tracker\t";
-    std::cout << trkr.get_url();
+    // std::this_thread::sleep_for(std::chrono::milliseconds{100});
+    // std::cout << "new tracker\t";
+    // std::cout << trkr.get_url();
 
-    size_t remain = size_t{55} - trkr.get_url().length() - size_t{1};
-    for (size_t i=0; i != remain; ++i)
-      std::cout << ' ';
+    // size_t remain = size_t{55} - trkr.get_url().length() - size_t{1};
+    // for (size_t i=0; i != remain; ++i)
+    //   std::cout << ' ';
 
-    if (trkr.nest.bool_set.has_http==false) {               // failsafe against upd protocol (remove if udp protocol implemented)
-      --trkrs_in_trkrspace;                                  // failsafe against upd protocol (remove if udp protocol implemented)
-      std::cout << "\t This tracker has no http counterpart\n";
-      continue;
-    }                                                       // failsafe against upd protocol (remove if udp protocol implemented)
-    while (trkr.http_mode==false) trkr.seek_to_next_url();  // failsafe against udp protocol (remove if udp protocol implemented)
-    std::cout << "\n\tseek to http url successful -> " << trkr.get_url() << '\n';
+    if (trkr.nest.bool_set.has_http==false) {                   // failsafe against upd protocol (remove if udp protocol implemented)
+      --trkrs_in_trkrspace; continue;                           // failsafe against upd protocol (remove if udp protocol implemented)
+    }                                                           // failsafe against upd protocol (remove if udp protocol implemented)
+    while (trkr.http_mode==false) trkr.seek_to_next_url();      // failsafe against udp protocol (remove if udp protocol implemented)
+    //std::cout << "\n\tseek to http url successful -> " << trkr.get_url() << '\n';
     manager_space.push_back(&trkr);
-    std::cout << "\tpushed to manager space\n";
+    //std::cout << "\tpushed to manager space\n";
     trkr.nest.queue_ptr = &manager_space.back();
-    std::cout << "\ttrackers queue ptr stored successfully within itself\n";
+    //std::cout << "\ttrackers queue ptr stored successfully within itself\n";
   }
-  std::cout << "populate manager space has exited forloop\n";
   manager_space.shrink_to_fit();
 }
 
@@ -116,7 +113,7 @@ TrackerManager::TrackerManager(TorrentFile& torrent_, unsigned psp_)
   initialize_tracker_context();
   initiatlize_trackers(torrent.get_tracker_urls());
   initialize_state_system();
-  //protocol.http.start_backend();
+  protocol.http.start_backend();
   std::cout << "\nTorrent is file: " << torrent.torrent_is_file() << " Torrent size: " << torrent.get_download_size() << '\n';
   std::cout <<" Tracker context: Downloaded: " << tracker_context.downloaded << "  left " << tracker_context.left << " uploaded " << tracker_context.uploaded << " compact: "
     << tracker_context.compact <<'\n';
@@ -142,7 +139,7 @@ std::string TrackerManager::get_request_params()
   };
   auto accumulate_params = [ampersand='&'](std::array<std::string, 8> params) {
     std::string loaded_paramaters;
-    for(std::string& param : params) loaded_paramaters += std::move(param) + ampersand;
+    for(std::string& param : params) loaded_paramaters += (&param != &params[7]) ? std::move(param) + ampersand : std::move(param);
     loaded_paramaters.pop_back();
     return loaded_paramaters;
   };
@@ -152,11 +149,12 @@ std::string TrackerManager::get_request_params()
 void TrackerManager::set_announce_url_for_tracker(Tracker& trkr, tracker_event event) {
   std::string tracker_id = trkr.nest.tracker_id.empty() ? "" : std::string{'&'}.append("trackerid=").append(trkr.nest.tracker_id);
   std::string request_url = trkr.get_url() + '?' + get_request_params() + tracker_id + event_strings[static_cast<size_t>(event)];
-  std::cout << request_url << '\n';
   if(trkr.http_mode)
     curl_easy_setopt(trkr.connection, CURLOPT_URL, request_url.data());
   else
    ;
+  char* effective_url{};
+  curl_easy_getinfo(trkr.connection, CURLINFO_EFFECTIVE_URL, &effective_url);
 }
 
 int TrackerManager::get_retry_seconds(const Tracker* trkr) {

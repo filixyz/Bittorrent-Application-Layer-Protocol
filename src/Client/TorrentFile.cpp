@@ -1,5 +1,6 @@
 #include "TorrentFile.h"
 #include "../Errorhandlers/BittorentErrors.h"
+#include <cstdint>
 #include <fstream>
 #include <crypto++/sha.h>
 
@@ -16,6 +17,18 @@ TorrentFile::TorrentFile(const std::filesystem::path pathname) {
     info_hash = &(transcibe.find("info")->second.get_data<ben::dic>());
   } catch (...) {
     throw Invalid_Torrent_File{};
+  }
+  compute_download_size();
+}
+
+void TorrentFile::compute_download_size() {
+  if ( torrent_is_file() )
+    file_size = info_hash->find("length")->second.get_data<ben::num>();
+  else {
+    auto& files = info_hash->find("files")->second.get_data<ben::lis>();
+    for (auto& file : files) {
+      file_size += file.get_data<ben::dic>().find("length")->second.get_data<ben::num>();
+    }
   }
 }
 
@@ -58,7 +71,6 @@ bool TorrentFile::torrent_is_file() const {
   return file_itr != end_itr ? true : false;
 }
 
-int TorrentFile::get_download_size() const {
-  return torrent_is_file() ? info_hash->find("length")->second.get_data<int>()
-                           : 0;
+std::int64_t TorrentFile::get_download_size() const {
+  return file_size;
 }

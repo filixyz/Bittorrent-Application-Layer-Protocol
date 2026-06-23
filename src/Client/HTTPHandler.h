@@ -17,7 +17,7 @@ class HTTPHandler {
   ev::dynamic_loop& event_loop;
   ev::timer curl_timer;
   int actives;
-
+  std::string track_tag{"This is the legit http handler dawg, not garbage"};    // DELETE LATER FOR DEBUGGING PURPOSES
   struct network_data;
 
   static CURL* new_easy(network_data&);

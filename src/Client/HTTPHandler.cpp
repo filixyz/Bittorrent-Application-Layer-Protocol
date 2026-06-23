@@ -1,4 +1,6 @@
 #include "HTTPHandler.h"
+#include "TrackerManager.h"
+#include <cassert>
 #include <cstddef>
 #include <curl/curl.h>
 #include <curl/easy.h>
@@ -15,14 +17,14 @@ HTTPRequest::~HTTPRequest() {
   curl_easy_cleanup(connection);
 }
 
-HTTPHandler::HTTPHandler(ev::dynamic_loop& ev_loop): event_loop(ev_loop), curl_timer(ev_loop) {
+HTTPHandler::HTTPHandler(ev::dynamic_loop& ev_loop): event_loop(ev_loop), curl_timer(event_loop) {
   multi = curl_multi_init();
-  if (!multi)
-    ; //handle error
+  if (multi) std::cout << "HTPP BACKEND INITIATED\n";
   curl_multi_setopt(multi, CURLMOPT_SOCKETFUNCTION, socket_callback);
   curl_multi_setopt(multi, CURLMOPT_SOCKETDATA, this);
   curl_multi_setopt(multi, CURLMOPT_TIMERFUNCTION, timer_callback);
   curl_multi_setopt(multi, CURLMOPT_TIMERDATA, this);
+  curl_timer.set<HTTPHandler::drive_timer>();
   curl_timer.data=this;
 }
 
@@ -49,11 +51,10 @@ CURL* HTTPHandler::new_easy(network_data& user_field) {
 }
 
 void HTTPHandler::add_request(HTTPRequest* request) {
+  char* url{};
+  curl_easy_getinfo(request->connection, CURLINFO_EFFECTIVE_URL, &url);
   request->sock_wtchr.set(event_loop);
   curl_multi_add_handle(multi, request->connection);
-  //char url[100]; url[99] = '\0';
-  //curl_easy_getinfo(request->connection, CURLINFO_EFFECTIVE_URL, url);
-  //std::cout << "Request: " << url << '\n';
 }
 
 void HTTPHandler::rmv_request(HTTPRequest* request) {
@@ -87,7 +88,7 @@ void HTTPHandler::chk_finished(CURLM* multi) {
 // handle networks events in the supplied
 // socket.data is "this" pointer of current HttpHandler object'
 void HTTPHandler::drive_sockt(ev::io& socket, int revents) {
-
+  std::cout << "Someone just drove" << '\n';
   auto actions = ( revents&ev::READ?CURL_CSELECT_IN:0 ) | ( revents&ev::WRITE?CURL_CSELECT_OUT:0 );
   HTTPHandler* http = static_cast<HTTPHandler*>(socket.data);
   CURLMcode cRes = curl_multi_socket_action(http->multi, socket.fd, actions, &http->actives);
@@ -101,6 +102,7 @@ void HTTPHandler::drive_sockt(ev::io& socket, int revents) {
 // 2. Pointer arithmetics with C STL offset(type_name, type_member_name)
 // will be going with once since easier to think about
 void HTTPHandler::drive_timer(ev::timer& timer, int revents) {
+  std::cout << "http timer callback\n";
   HTTPHandler* http = static_cast<HTTPHandler*>(timer.data);
   CURLMcode cRes = curl_multi_socket_action(http->multi, CURL_SOCKET_TIMEOUT, 0, &http->actives);
   // code to handle cRes Goes here
@@ -108,6 +110,7 @@ void HTTPHandler::drive_timer(ev::timer& timer, int revents) {
 }
 
 size_t HTTPHandler::easy_callback(const char* data, size_t size, size_t datalen,void *user_data) {
+  std::cout << "easy callback\n";
   network_data *mem = (network_data *) (user_data);
   if (!mem) return 0;
   mem->data += data;
@@ -142,6 +145,7 @@ void HTTPHandler::set_socket(curl_socket_t fd, ev::io* watcher, int what) {
 // socketp  will be a pointer to the socket watcher;
 //          This is the pointer stored with curl_multi_assign when first creating a socket
 int HTTPHandler::socket_callback(CURL *easy, curl_socket_t sockfd, int what, void *clientp, void *socketp) {
+  std::cout << "socket callback\n";
   HTTPHandler*  httpG = static_cast<HTTPHandler*>(clientp);
   ev::io*       socket_watcher = static_cast<ev::io*>(socketp);
   if(what==CURL_POLL_REMOVE) {
@@ -164,7 +168,8 @@ int HTTPHandler::timer_callback(CURLM *multi, long timeout_ms, void *userp) {
   constexpr double ms_per_sec = 1000.0;
   HTTPHandler* httpG = static_cast<HTTPHandler*>( userp );
   ev::timer& timer =  httpG->curl_timer;
-  if (timer.active) timer.stop();
+  if (timer.active)
+    timer.stop();
   double timeout = timeout_ms/ms_per_sec;
   timer.set(timeout);
   timer.start();
@@ -172,5 +177,6 @@ int HTTPHandler::timer_callback(CURLM *multi, long timeout_ms, void *userp) {
 }
 
 void HTTPHandler::start_backend(){
-  curl_multi_socket_action(multi, CURL_SOCKET_TIMEOUT, 0, &actives);
+  if (curl_multi_socket_action(multi, CURL_SOCKET_TIMEOUT, 0, &actives) == CURLM_OK)
+    std::cout << "HTTP BACKEND ONLINE";
 }

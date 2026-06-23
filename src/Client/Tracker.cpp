@@ -39,6 +39,7 @@ void TrackerManager::Tracker::do_on_success() {
   // place bendecode parse and tracker timer updates here
   // send peers to peermanager here
 
+  std::cout << user_space.data << '\n';
   if (!user_space.data.empty()) {
     Bendata parse;
     std::istringstream bencode(user_space.data);

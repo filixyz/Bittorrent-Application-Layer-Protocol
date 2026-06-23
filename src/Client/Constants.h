@@ -2,5 +2,5 @@
 
 #include <sys/socket.h>
 namespace client::constants {
-  inline constexpr char client_id[] = "12345123451234512345";
+  inline constexpr char client_id[] = "-JL0001-x4Kn8mR2pL9q";
 }
