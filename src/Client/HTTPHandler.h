@@ -44,7 +44,7 @@ public:
 };
 
 struct HTTPHandler::network_data {
-  std::string data; std::size_t size;
+  std::string data{}; std::size_t size{0};
 };
 
 class HTTPHandler::HTTPRequest {

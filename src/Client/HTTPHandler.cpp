@@ -9,7 +9,7 @@
 #include <ev.h>
 #include <iostream>
 
-HTTPRequest::HTTPRequest() {
+HTTPRequest::HTTPRequest(): user_space{} {
   connection = new_easy(user_space);
   curl_easy_setopt(connection, CURLOPT_PRIVATE, this);
 };
@@ -107,13 +107,13 @@ void HTTPHandler::drive_timer(ev::timer& timer, int revents) {
   chk_finished(http->multi);
 }
 
-size_t HTTPHandler::easy_callback(const char* data, size_t size, size_t datalen,void *user_data) {
+size_t HTTPHandler::easy_callback(const char* data, size_t size, size_t datalen, void *user_data) {
   std::cout << "easy callback\n";
   network_data *mem = (network_data *) (user_data);
   if (!mem) return 0;
   mem->data += data;
   mem->size += datalen;
-  return datalen;
+  return size * datalen;
 }
 
 void HTTPHandler::remove_socket(ev::io* socket_watcher) {
