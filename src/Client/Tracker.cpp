@@ -41,9 +41,8 @@ void TrackerManager::Tracker::do_on_success() {
 
   std::cout << user_space.data << '\n';
   if (!user_space.data.empty()) {
-    Bendata parse;
     std::istringstream bencode(user_space.data);
-    get_bendata_from_stream(bencode, parse);
+    Bendata parse = bendecode_from_file(bencode); // TEST
     ben::dic& parsed_dict = parse.get_data<ben::dic>();
     // ----------> EXCEPTION MAY HAPPEN HERE IF BENCODE IS ERRORNEOUS.
     if (parsed_dict.contains("failure reason"))
