@@ -7,7 +7,10 @@ Mar 4, 15.17
 June 6, 19.17
 [+] Tracker.cpp do_on_success() member has potential bug; tracker is upgraded into update state immediatly entering functions execuetion
    Concern: what if tracker is nowin update state but response for that transaction contained "failure reason" key?. Handle that Ikechukwu
-[] Test HTTP backend for bugs
+[+] Test HTTP backend for bugs
 [+] Possibity that http trackers transactions with 3XX http responses might be treated as failures instead of reolving redirect to actual url that might
    return a successful response, handle that.
-[] Test TrackerManager and finally move to PeerManager bro
+[+] Test TrackerManager and finally move to PeerManager bro
+
+June 26, 18.24
+[+] Start implementing PeerManager

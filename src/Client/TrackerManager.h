@@ -24,7 +24,7 @@ class TrackerManager {
   enum class tracker_event:short {
     started=0, stopped=1, completed=2, update=3,
   };
-  std::array<std::string, 4> event_strings {
+  const std::array<std::string, 4> event_strings {
     "&event=started", "&event=stopped", "&event=completed", ""
   };
 

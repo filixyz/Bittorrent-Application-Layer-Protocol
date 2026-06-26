@@ -78,7 +78,6 @@ void HTTPHandler::chk_finished(CURLM* multi) {
       request->do_on_success();
     else // Else block might treat trackers with redirects (http response code 3XX) as failures (fixed)
       request->do_on_failure();
-
     curl_multi_remove_handle(multi, easy);
   }
 }
