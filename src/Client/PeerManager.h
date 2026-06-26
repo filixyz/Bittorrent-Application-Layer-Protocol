@@ -20,8 +20,8 @@ struct PeerManager::Peer {
   std::bitset<T> bitfield;
   std::bitset<2> choke_flag;
   std::bitset<2> interest_flag;
-  unsigned down_speed;
-  unsigned upld_speed;
+  std::size_t down_speed{0};
+  std::size_t upld_speed{0};
   enum bit_for { client=0, peer=1 };
 };
 

@@ -17,9 +17,9 @@ class TrackerManager {
     std::int64_t left{};       int compact{1};
   };
   struct protocol_handle_t {
-    HTTPHandler http;     UDPHandler udp;
+    const HTTPHandler http;     UDPHandler udp;
     protocol_handle_t(ev::dynamic_loop&);
-    void add_request(Tracker*);
+    void add_request(Tracker*) const;
   };
   enum class tracker_event:short {
     started=0, stopped=1, completed=2, update=3,
@@ -41,10 +41,6 @@ class TrackerManager {
   void (TrackerManager::*current_state)();
   bool running=true;
   int trkrs_in_trkrspace;
-
-  // Test stuffs
-  ev::timer test_timer;
-  void test_timer_clbk(ev::timer&, int);
 
   void initialize_info_hash_byte();
   void initialize_tracker_context();
@@ -69,8 +65,8 @@ class TrackerManager {
   void shutdown_state();
   void inactive_state();
 
-  std::string get_request_params();
-  void set_announce_url_for_tracker(Tracker&, tracker_event);
+  std::string get_request_params() const;
+  void set_announce_url_for_tracker(Tracker&, tracker_event) const;
 
   void send_requests();
   void parse_responses();
@@ -107,7 +103,7 @@ class TrackerManager::Tracker: public HTTPRequest {
     std::string tracker_id;             unsigned    failure_count=0;
     Tracker**   queue_ptr;              std::vector<std::string> announce_urls;
     size_t current_announce_url_index;  int* trkrs_in_trkrspace_ref;
-    ssize_t failed_url_index=-1;         TrackerManager* manager;
+    ssize_t failed_url_index=-1;        const TrackerManager* manager;
   };
   void do_on_success() override;        void do_on_failure() override;
   void send_to_protocol_space();        void return_to_manager_space();

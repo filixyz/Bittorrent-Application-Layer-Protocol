@@ -1,5 +1,4 @@
 #include "HTTPHandler.h"
-#include "TrackerManager.h"
 #include <cassert>
 #include <cstddef>
 #include <curl/curl.h>
@@ -50,12 +49,13 @@ CURL* HTTPHandler::new_easy(network_data& user_field) {
   return newE;
 }
 
-void HTTPHandler::add_request(HTTPRequest* request) {
+void HTTPHandler::add_request(HTTPRequest* request) const {
   request->sock_wtchr.set(event_loop);
+  curl_easy_setopt(request->connection, CURLOPT_URL, request->user_space.url.data());
   curl_multi_add_handle(multi, request->connection);
 }
 
-void HTTPHandler::rmv_request(HTTPRequest* request) {
+void HTTPHandler::rmv_request(HTTPRequest* request) const {
   curl_multi_remove_handle(multi, request->connection);
 }
 
@@ -179,7 +179,7 @@ int HTTPHandler::timer_callback(CURLM *multi, long timeout_ms, void *userp) {
   return 0;
 }
 
-void HTTPHandler::start_backend(){
-  if (curl_multi_socket_action(multi, CURL_SOCKET_TIMEOUT, 0, &actives) == CURLM_OK)
+void HTTPHandler::start_backend() const {
+  if (curl_multi_socket_action(multi, CURL_SOCKET_TIMEOUT, 0, 0) == CURLM_OK)
     std::cout << "HTTP BACKEND ONLINE";
 }

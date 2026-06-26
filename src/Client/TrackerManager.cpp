@@ -4,7 +4,6 @@
 #include "Hasher.h"
 #include <array>
 #include <cassert>
-#include <chrono>
 #include <cstdlib>
 #include <ctime>
 #include <curl/curl.h>
@@ -12,7 +11,6 @@
 #include <ev++.h>
 #include <string>
 #include <sys/time.h>
-#include <thread>
 #include <unistd.h>
 #include <utility>
 #include <vector>
@@ -21,7 +19,7 @@
 TrackerManager::protocol_handle_t::protocol_handle_t(ev::dynamic_loop& ev_loop) : http(ev_loop)
 {}
 
-void TrackerManager::protocol_handle_t::add_request(Tracker* trkr) {
+void TrackerManager::protocol_handle_t::add_request(Tracker* trkr) const {
  if(trkr->http_mode)
   http.add_request(trkr);
  else
@@ -52,7 +50,6 @@ void TrackerManager::initiatlize_trackers(std::vector<std::string_view> trackers
     tag_http_presence(url, tracker_connections[key]);
     current.nest.time_set.min_timer_w.set(event_loop);
     current.nest.time_set.timer_w.set(event_loop);
-    //current.sock_wtchr.set(event_loop);
   }
 }
 
@@ -122,7 +119,7 @@ TrackerManager::TrackerManager(TorrentFile& torrent_, unsigned psp_)
   std::cout << event_strings[2] << '\n';
 }
 
-std::string TrackerManager::get_request_params()
+std::string TrackerManager::get_request_params() const
 {
   auto make_param = [](std::string_view key, std::string_view value) {
     return std::string(key).append(1, '=').append(value);
@@ -147,15 +144,10 @@ std::string TrackerManager::get_request_params()
   return accumulate_params(params);
 }
 
-void TrackerManager::set_announce_url_for_tracker(Tracker& trkr, tracker_event event) {
+void TrackerManager::set_announce_url_for_tracker(Tracker& trkr, tracker_event event) const {
   std::string tracker_id = trkr.nest.tracker_id.empty() ? "" : std::string{'&'}.append("trackerid=").append(trkr.nest.tracker_id);
   std::string request_url = trkr.get_url() + '?' + get_request_params() + tracker_id + event_strings[static_cast<size_t>(event)];
-  if(trkr.http_mode)
-    curl_easy_setopt(trkr.connection, CURLOPT_URL, request_url.data());
-  else
-   ;
-  char* effective_url{};
-  curl_easy_getinfo(trkr.connection, CURLINFO_EFFECTIVE_URL, &effective_url);
+  trkr.user_space.url = std::move(request_url);
 }
 
 int TrackerManager::get_retry_seconds(const Tracker* trkr) {
@@ -214,13 +206,12 @@ void TrackerManager::start_state() {
       trkr->nest.time_set.min_timer_w.set<&TrackerManager::tracker_timeout_handler> ();
       trkr->nest.time_set.timer_w.data=trkr;
       trkr->nest.time_set.min_timer_w.data=trkr;  // CHECKPOINT: VALID : BUG FIXED.
-      arm_timer(trkr->nest.time_set.timer_w, 0.0);  // timer initialized to 1 millisec so it expires quickly
+      arm_timer(trkr->nest.time_set.timer_w, 0.0);  // timer initialized to expire immediately
       continue;
     }
     arm_timer(trkr->nest.time_set.timer_w, trkr->nest.time_set.interval);
     if(trkr->nest.bool_set.only_one_timer==false)
       arm_timer(trkr->nest.time_set.min_timer_w, trkr->nest.time_set.min_interval);
-    //std::cout << "Do i ever get here?\n";
   }
   std::cout<< "Starting ended\n";
   current_state=&TrackerManager::normal_state;
@@ -333,11 +324,9 @@ void TrackerManager::update_context(unsigned dwn, unsigned upd) {
   tracker_context.left       -= dwn;
 }
 
-
-void TrackerManager::test_timer_clbk(ev::timer&, int) { running=false; }
-
 void TrackerManager::test(int seconds) {
   std::cout << "== Test started ==\n";
   start_tracker_manager();
   std::cout << "== Test ended ==\n";
+  return (void) seconds;
 }

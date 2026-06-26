@@ -85,13 +85,13 @@ void TrackerManager::Tracker::do_on_failure() {
   // failsafe for unimplemeneted udp protocol mechanism
   // once implemented remove `seek_to_next_url()` from
   // while loop; it should run only once.
-  while (http_mode==false) seek_to_next_url();                    // UDP FAILSAFE: BUG!: Might seek forever if tracker has no http url (false alarm)
-  nest.time_set.interval = retry_for_new_url;
-  if (nest.current_announce_url_index==nest.failed_url_index) {
+  while (http_mode==false) seek_to_next_url();                    // UDP FAILSAFE: will forever if tracker has no http url
+  if (nest.current_announce_url_index==static_cast<std::size_t>(nest.failed_url_index)) {
     nest.failure_count++;
     nest.bool_set.active_flag=false;
     nest.time_set.interval = get_retry_seconds(this);
   }
+  nest.time_set.interval = retry_for_new_url;
   arm_timer(nest.time_set.timer_w, nest.time_set.interval);
   if (nest.bool_set.requeueable)
     return_to_manager_space();
