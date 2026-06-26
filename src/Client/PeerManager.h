@@ -3,23 +3,26 @@
 #include <string>
 #include <bitset>
 
-enum {
-  my_flag=0,
-  peer_flag=1
+class PeerManager {
+  template <int T> struct Peer;
+
 };
 
 template <int T>
-struct Peer{
+struct PeerManager::Peer {
   std::string peer_id;
   std::string address;
-  unsigned port;
+  int port;
+  // might concatenate peer_id and port above
+  // into an std::vector<std::byte> since this client will
+  // be operating in compact mode; first 4 bytes -> address
+  //                               last  2 bytes -> port number
   std::bitset<T> bitfield;
   std::bitset<2> choke_flag;
   std::bitset<2> interest_flag;
   unsigned down_speed;
   unsigned upld_speed;
+  enum bit_for { client=0, peer=1 };
 };
-class PeerManager {
 
-};
 #endif

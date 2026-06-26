@@ -147,7 +147,6 @@ void HTTPHandler::set_socket(curl_socket_t fd, ev::io* watcher, int what) {
 int HTTPHandler::socket_callback(CURL *easy, curl_socket_t sockfd, int what, void *clientp, void *socketp) {
   std::cout << "socket callback\n";
   HTTPHandler*  httpG = static_cast<HTTPHandler*>(clientp);
-
   void* private_data{nullptr};
   curl_easy_getinfo(easy, CURLINFO_PRIVATE, &private_data);
   ev::io* socket_watcher = &(static_cast<HTTPRequest*>(private_data))->sock_wtchr;
