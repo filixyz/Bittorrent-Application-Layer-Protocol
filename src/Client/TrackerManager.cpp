@@ -89,6 +89,7 @@ void TrackerManager::initialize_info_hash_byte() {
   const std::vector<std::byte> info_hash_bytes = Hasher::get_sha1(hash_byte_view);
   info_hash_byte = Hasher::byte_stringify_hash(info_hash_bytes);
 }
+
 void TrackerManager::initialize_tracker_context() {
   tracker_context.left = torrent.get_download_size();
 }
