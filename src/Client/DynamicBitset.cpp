@@ -24,26 +24,26 @@ DynamicBitset::DynamicBitset(std::span<std::uint8_t> view) {
   }
 }
 
+void DynamicBitset::operator|=(const DynamicBitset& other) {
+  if (other.length > length) bitfield.resize(other.length);
+  for (std::size_t i=0; i < other.bitfield.size(); ++i)
+    bitfield[i] |= other.bitfield[i];
+}
+
+void DynamicBitset::operator&=(const DynamicBitset& other) {
+  if (other.length > length) bitfield.resize(other.length);
+  for (std::size_t i=0; i < other.bitfield.size(); ++i)
+    bitfield[i] &= other.bitfield[i];
+}
+
 DynamicBitset DynamicBitset::operator|(const DynamicBitset& other) {
-  bool is_other_longest = other.length > length;
-  const DynamicBitset& longest = is_other_longest ? other : *this;
-  const DynamicBitset& shortest = is_other_longest ? *this: other;
-  DynamicBitset newset = longest;
-
-  for (std::size_t i=0; i < shortest.bitfield.size(); ++i)
-    newset.bitfield[i] |= shortest.bitfield[i];
-
+  DynamicBitset newset = *this;
+  newset |= other;
   return newset;
 }
 
 DynamicBitset DynamicBitset::operator&(const DynamicBitset& other) {
-  bool is_other_longest = other.length > length;
-  std::size_t newsetl = is_other_longest ? other.length : length;
-  const DynamicBitset& shortest = is_other_longest ? *this : other;
-  DynamicBitset newset (newsetl);
-
-  for (std::size_t i=0; i < shortest.bitfield.size(); ++i)
-    newset.bitfield[i] &= shortest.bitfield[i];
-
+  DynamicBitset newset = *this;
+  newset &= other;
   return newset;
 }

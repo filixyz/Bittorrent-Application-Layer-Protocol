@@ -11,7 +11,9 @@ public:
   DynamicBitset(std::size_t count);
   DynamicBitset(std::span<std::uint8_t> bitview);
   DynamicBitset operator&(const DynamicBitset&);
+  void operator&=(const DynamicBitset&);
   DynamicBitset operator|(const DynamicBitset&);
+  void operator|=(const DynamicBitset&);
   bool test(std::size_t) const;
   void set(std::size_t);
   void reset(std::size_t);
