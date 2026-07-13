@@ -1,47 +1,60 @@
 #ifndef PEER_MANAGER
 #define PEER_MANAGER
+
 #include <queue>
+#include <vector>
 #include <string>
 #include <bitset>
-#include <set>
 #include <ev++.h>
+#include <memory>
+#include <unordered_map>
 
 class PeerManager {
 
-  struct Peer;
-  class peer_priority_queue;
-  class peer_priotity_heap;
+  using socket_handle_t = int;
+
+  struct PeerAddress;
+  struct PeerHandle;
+  struct PeerConnection;
 
   bool seeding {false};
-  std::queue<std::string> incoming_meta_peers;
-  std::set<std::string> meta_peers;
-  std::vector<Peer> peer_connections;  // collections of successfully connected peers
+  ev::dynamic_loop event_loop;
+  ev::timer timer;
+  socket_handle_t client_socket;
+  ev::io socket_watcher;
+
+  std::queue<std::string> incoming_peer_addrs;  // meta peers storage
+  std::unordered_map<std::string, PeerHandle> peer_handles;  // beta peers storage ( beta peers hold the actual tcp network sockets state )
+  std::vector<PeerConnection> peer_connections; // alpha peer storage (THis should be a linked list of an observer type to a beta peer)
+
+  void initialize_server_socket();
+  void initialize_libev();
+
+  void server_socket_callback();
+  void rankify_peers_callback();
+  void make_new_connections();
+
+public:
+  void run_manager();
 };
 
-struct PeerManager::Peer {
-  enum bit_for { client=0, peer=1 };
-  std::string peer_id;
-  std::string address_and_port{6};
+struct PeerManager::PeerConnection {
+  PeerHandle* peer;
+  ev::io sock_watch;
+};
 
-  std::bitset<2> choke_flag;
-  std::bitset<2> interest_flag;
+struct PeerManager::PeerHandle {
+  enum from { me=0, them=1 };
+  std::string peer_id;
+  socket_handle_t socket_fd;
+  std::vector<bool> bitfield;
+  std::bitset<2> choke{0x2};
+  std::bitset<2> interest{0x2};
   std::size_t down_speed{0};
   std::size_t upld_speed{0};
-
-  ev::io sock_watch;      // to listen for piece requests and bitfield notifications;
-  ev::timer keep_alive;   // for periodiic keep_alives
+  ev_io socket_watcher;
+  ev_timer timer_watcher;
 };
 
-class PeerManager::peer_priority_queue {
-
-  struct peer_compare {
-    bool& seeding;
-    constexpr bool operator() (const Peer& lhs, const Peer& rhs) {
-      return seeding ? lhs.down_speed > rhs.down_speed : lhs.upld_speed > rhs.upld_speed;
-    }
-  };
-
-  std::priority_queue<Peer, std::vector<Peer>, peer_compare> pr;
-};
 
 #endif
