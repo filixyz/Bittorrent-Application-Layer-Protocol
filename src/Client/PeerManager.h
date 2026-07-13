@@ -10,9 +10,9 @@
 #include <unordered_map>
 #include "Constants.h"
 #include "ThreadMessageTypes.h"
+#include "DynamicBitset.h"
 
 class PeerManager {
-
   using socket_handle_t = int;
   struct PeerAddress;
   struct PeerHandle;
@@ -43,7 +43,6 @@ public:
 };
 
 struct PeerManager::PeerAddress {
-
 };
 
 struct PeerManager::PeerConnection {
@@ -55,7 +54,7 @@ struct PeerManager::PeerHandle {
   enum from { me=0, them=1 };
   std::string peer_id;
   socket_handle_t socket_fd;
-  std::vector<bool> bitfield;
+  DynamicBitset bitfield;
   std::bitset<2> choke{0x2};
   std::bitset<2> interest{0x2};
   std::size_t down_speed{0};

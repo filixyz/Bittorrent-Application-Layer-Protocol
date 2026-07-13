@@ -15,7 +15,8 @@ DynamicBitset::DynamicBitset(std::size_t count) : length(count){
 };
 
 DynamicBitset::DynamicBitset(std::span<std::uint8_t> view){
-  bitfield.resize(get_bytes_for_bits(view.size()*8));
+  length = view.size()*8;
+  bitfield.resize(get_bytes_for_bits(length));
   std::size_t set_index=0;
   std::uint8_t offset = 0;
 

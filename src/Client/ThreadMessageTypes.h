@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <utility>
 #include <bitset>
+#include "DynamicBitset.h"
 
 // For interacting with peer manager
 struct peer_update {
@@ -12,7 +13,7 @@ struct peer_update {
   union message {
     std::pair<std::size_t, std::size_t> down_up_speed;
     std::bitset<4> choke_interest_set {0};
-    std::string bitfield;
+    DynamicBitset bitfield;
   };
 };
 

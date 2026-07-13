@@ -15,6 +15,8 @@ public:
   void operator&=(const DynamicBitset&);
   DynamicBitset operator|(const DynamicBitset&);
   void operator|=(const DynamicBitset&);
+  // if you set, test, or reset an index>=bitfield.length
+  // no bitwise operation will be performed.
   bool test(std::size_t) const;
   void set(std::size_t);
   void reset(std::size_t);
