@@ -8,24 +8,27 @@
 #include <ev++.h>
 #include <memory>
 #include <unordered_map>
+#include "Constants.h"
+#include "ThreadMessageTypes.h"
 
 class PeerManager {
 
   using socket_handle_t = int;
-
   struct PeerAddress;
   struct PeerHandle;
   struct PeerConnection;
 
-  bool seeding {false};
   ev::dynamic_loop event_loop;
   ev::timer timer;
-  socket_handle_t client_socket;
   ev::io socket_watcher;
+  ev::async queue_consumer_watcher;
 
-  std::queue<std::string> incoming_peer_addrs;  // meta peers storage
-  std::unordered_map<std::string, PeerHandle> peer_handles;  // beta peers storage ( beta peers hold the actual tcp network sockets state )
-  std::vector<PeerConnection> peer_connections; // alpha peer storage (THis should be a linked list of an observer type to a beta peer)
+  bool seeding {false};
+  socket_handle_t client_socket;
+  std::queue<std::string> discovered_peers;
+  std::queue<peer_update> peer_updates;
+  std::unordered_map<std::string, PeerHandle> peer_handles;
+  std::vector<PeerConnection> peer_connections;
 
   void initialize_server_socket();
   void initialize_libev();
@@ -36,6 +39,10 @@ class PeerManager {
 
 public:
   void run_manager();
+};
+
+struct PeerManager::PeerAddress {
+
 };
 
 struct PeerManager::PeerConnection {
