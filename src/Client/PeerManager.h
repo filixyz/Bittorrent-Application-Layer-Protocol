@@ -28,6 +28,7 @@ class PeerManager {
   std::queue<std::string> discovered_peers;
   std::queue<peer_update> peer_updates;
   std::unordered_map<std::string, PeerHandle> peer_handles;
+  std::size_t connected_peers_count;
   std::vector<PeerConnection> peer_connections;
 
   void initialize_server_socket();
