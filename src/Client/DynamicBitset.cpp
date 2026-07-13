@@ -56,3 +56,27 @@ void DynamicBitset::print() {
   for (auto& i : bitfield)
     std::cout << std::bitset<64>(i).to_string() << '\n';
 }
+
+bool DynamicBitset::test(std::size_t index) const{
+  if (index >= length)
+    return false;
+  std::size_t field_index = index/64;
+  std::size_t bit_index = index & 63;
+  return bitfield[field_index] & std::uint64_t(1)<<bit_index;
+}
+
+void DynamicBitset::set(std::size_t index){
+  if (index >= length)
+    return;
+  std::size_t field_index = index/64;
+  std::size_t bit_index = index & 63;
+  bitfield[field_index] |= std::uint64_t(1)<<bit_index;
+}
+
+void DynamicBitset::reset(std::size_t index) {
+  if (index >= length)
+    return;
+  std::size_t field_index = index/64;
+  std::size_t bit_index = index & 63;
+  bitfield[field_index] &= ~(std::uint64_t(1)<<bit_index);
+}
