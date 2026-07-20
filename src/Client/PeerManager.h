@@ -11,6 +11,7 @@
 #include "Constants.h"
 #include "ThreadMessageTypes.h"
 #include "DynamicBitset.h"
+//--------------- Unix Networking Headers here
 
 class PeerManager {
   using socket_handle_t = int;
@@ -35,8 +36,10 @@ class PeerManager {
   void initialize_libev();
 
   void server_socket_callback();
+  void peer_socket_callback();
   void rankify_peers_callback();
-  void make_new_connections();
+  void peer_update_callback();
+  void discovered_peer_callback();
 
 public:
   void run_manager();
@@ -62,6 +65,5 @@ struct PeerManager::PeerHandle {
   ev_io socket_watcher;
   ev_timer timer_watcher;
 };
-
 
 #endif

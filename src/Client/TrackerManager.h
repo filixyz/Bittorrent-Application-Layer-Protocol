@@ -10,23 +10,13 @@
 #include <unordered_map>
 
 class TrackerManager {
-
   class Tracker;
   struct trkr_context_t {
-    std::int64_t uploaded{0};  std::int64_t downloaded{0};
-    std::int64_t left{};       int compact{1};
-  };
+    std::int64_t uploaded{0};  std::int64_t downloaded{0}; std::int64_t left{}; int compact{1}; };
   struct protocol_handle_t {
-    const HTTPHandler http;     UDPHandler udp;
-    protocol_handle_t(ev::dynamic_loop&);
-    void add_request(Tracker*) const;
-  };
-  enum class tracker_event:short {
-    started=0, stopped=1, completed=2, update=3,
-  };
-  const std::array<std::string, 4> event_strings {
-    "&event=started", "&event=stopped", "&event=completed", ""
-  };
+    const HTTPHandler http; UDPHandler udp; protocol_handle_t(ev::dynamic_loop&);void add_request(Tracker*) const; };
+  enum class tracker_event:short { started=0, stopped=1, completed=2, update=3, };
+  const std::array<std::string, 4> event_strings { "&event=started", "&event=stopped", "&event=completed", "" };
 
   ev::dynamic_loop event_loop;
   ev::io state_event_wtc;
