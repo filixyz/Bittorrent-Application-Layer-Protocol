@@ -18,9 +18,10 @@ std::size_t tcp_buffer::size(){
 }
 
 std::size_t tcp_buffer::prepare_read(struct iovec* iov) {
-  if(read < write) {
+  const std::size_t available = r_available();
+  if(read < write || available == 0) {
     iov[0].iov_base = &buffer[read];
-    iov[0].iov_len = r_available();
+    iov[0].iov_len = available;
     return 1;
   }
   iov[0].iov_base = &buffer[read];
@@ -31,9 +32,10 @@ std::size_t tcp_buffer::prepare_read(struct iovec* iov) {
 }
 
 std::size_t tcp_buffer::prepare_write(struct iovec* iov) {
-  if(write < read) {
+  const std::size_t available = w_available();
+  if(write < read || available == 0) {
     iov[0].iov_base = &buffer[write];
-    iov[0].iov_len = w_available();
+    iov[0].iov_len = available;
     return 1;
   }
   iov[0].iov_base = &buffer[write];
