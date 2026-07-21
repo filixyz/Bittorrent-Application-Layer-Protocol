@@ -1,28 +1,66 @@
 #include "TCPRingBuffer.h"
 #include <cstddef>
 
-std::size_t tcp_buffer::mask(std::size_t idx) { return  idx & (buffer.size()-1); }
+std::size_t tcp_buffer::mask(std::size_t idx) {
+  return  idx & (buffer.size()-1);
+}
 
-bool tcp_buffer::empty() { return read == write; }
+bool tcp_buffer::empty() {
+  return prev_action == R && read == write;
+}
 
-bool tcp_buffer::full() { return mask(write + 1) == read; }
+bool tcp_buffer::full() {
+  return prev_action == W && read == write;
+}
 
-std::size_t tcp_buffer::size(){ return write - read; }
+std::size_t tcp_buffer::size(){
+  return write>read ? write-read : buffer.size()-read+write;
+}
 
-std::uint8_t* tcp_buffer::get_read_addr() { return &buffer[read]; }
+std::size_t tcp_buffer::prepare_read(struct iovec* iov) {
+  if(read < write) {
+    iov[0].iov_base = &buffer[read];
+    iov[0].iov_len = r_available();
+    return 1;
+  }
+  iov[0].iov_base = &buffer[read];
+  iov[0].iov_len = buffer.size() - read;
+  iov[1].iov_base = &buffer[0];
+  iov[1].iov_len = write;
+  return 2;
+}
 
-std::uint8_t* tcp_buffer::get_writ_addr() { return &buffer[write]; }
+std::size_t tcp_buffer::prepare_write(struct iovec* iov) {
+  if(write < read) {
+    iov[0].iov_base = &buffer[write];
+    iov[0].iov_len = w_available();
+    return 1;
+  }
+  iov[0].iov_base = &buffer[write];
+  iov[0].iov_len = buffer.size() - write;
+  iov[1].iov_base = &buffer[0];
+  iov[1].iov_len = read;
+  return 2;
+}
 
-void tcp_buffer::update_read(std::size_t bytes) { read = mask(read+bytes); }
+void tcp_buffer::commit_read(std::size_t bytes) {
+  read = mask(read+bytes);
+  prev_action=R;
+}
 
-void tcp_buffer::update_writ(std::size_t bytes) { write = mask(write+bytes); }
+void tcp_buffer::commit_write(std::size_t bytes) {
+  write = mask(write+bytes);
+  prev_action=W;
+}
 
 std::size_t tcp_buffer::r_available() {
   if(empty()) return 0;
-  return size()-1;
+  if(full()) return buffer.size();
+  return size();
 }
 
 std::size_t tcp_buffer::w_available() {
   if(full()) return 0;
-  return buffer.size() - size() -1;
+  if(empty()) return buffer.size();
+  return buffer.size() - size();
 }
