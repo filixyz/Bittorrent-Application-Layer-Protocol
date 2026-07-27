@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <ev++.h>
 #include <unordered_map>
+#include "ThreadMessageTypes.h"
 
 class TrackerManager {
   class Tracker;

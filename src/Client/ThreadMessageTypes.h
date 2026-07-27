@@ -1,5 +1,7 @@
 #pragma once
 #include <cstddef>
+#include <sys/socket.h>
+#include <unistd.h>
 #include <utility>
 #include <bitset>
 #include "DynamicBitset.h"
@@ -15,6 +17,11 @@ struct peer_update {
     std::bitset<4> choke_interest_set {0};
     DynamicBitset bitfield;
   };
+};
+
+struct peer_address {
+  sockaddr_storage sock_store;
+  socklen_t sock_size;
 };
 
 struct file_manager_update {

@@ -1,0 +1,64 @@
+First all sockets will have to be non blocking,
+
+Upon each successful transaction from a tracker, The tracker manager probes it's
+reference to Peer Managers unque peeraddress's map and checks if the newly obtained
+address is unique, if unique, it creates a new PeerAdddress object for it.
+
+The PeerAddress struct is as follows:
+struct PeerAddress {
+  sockaddr_storage* sock;
+  socklen_t size;
+};
+
+if sock.family is defined to the appropriate family judging from the IP address, sock.size, is
+given the size of sockaddr_in for IPV4 or sockaddr_in6 for IPV6. now upon successful production
+of a batch of PeerAddress's the async watcher for PeerManager queue consumer is signaled
+
+upon signalling, Peer Address tries to initaite connection to "max_inflight_peers" peers and exits it's callback. before a PeerAddress is popped we check if the max number of connected peers has been achieved, if yes: we stop popping off potential new peers and become sedantary.
+
+When Peer manager no of connected peer is 0 and the consumer callback is initiated, the peer
+manager enters it's connecting state, This state basically starts of by intialize
+"max_inflight_peers" number of connections all at once simultaneously, upon resolution of the
+connection attempt (success of failure), the just resolved peer initiates a new connection
+to replace its connecting spot, therfore making it at all times there being "max_infligh_peer"
+number of peers trying to connect simultaneoulsy at any given time.
+
+What happens when the maximum number of peers is reached?
+1. Peer manager stops intiating new connections
+2. Peer managers server stops acccepting new connections
+3. Peer manager now in a state where it listens for disconnects, upon a peer disconnect, the peers
+   connected count is reduced (duh) and the consumer call_back is invoked to kickstart the chain reaction.
+4. There would also be consumer_active flag in Peer Manager that tells the consumer callback
+   invoked, upon each disconnect, wether the chain reaction is already in motion, in order to
+   prevent connection chain reaction spamming that should in theory destory the max_infligh_peers
+   invariant
+
+What happens to non blocking sockets that may not have completed thier connection before
+max number of peers what reached and still inflight, connecting?
+1. They are added to a kickstart bucket
+2. upon reduction of peer disconnect and initiation of consumer callback, the callback first
+   tries to intiate from the bucket list before reachin into the main queue for discovered peers.
+3. It should be noted that there is a max time/retry resource allocated   for each dicovered peer
+   upon connection initiation to prevent bucket list from never restocking with newer peers, in
+   cases where such situation might be an issue.
+
+What happens upon successful connect?
+1. PeerHandled is upgreaded to a PeerSession
+2. references to PeerSession objects are shipped to Transfer manager to
+   begin piece download
+3. ev_timer and io watchers are reinitialized to handle Transfer Manager
+   logic.
+
+How do we detect a disconnect?
+1. Well according to texts, the socket become read and writeable
+2. trying to sending to the socket sends a SIGPIPE signal to the process
+3. trying to read returns 0 bytes read and errno responds accoridingly
+   upon read
+4. What method should my program rely on? i am yet to decide.
+
+A Peer has 4 states.
+1. Discovered ->  tracker manager successfuly discovered the guy
+2. Connecting ->  connection process initiated, waiting for resolution
+3. Connected  ->  resolved sucessfully.
+4. Dead       ->  upon capped trials of retries: failed all attempts and should be indefinitely
+                  ignored/abandoned.
