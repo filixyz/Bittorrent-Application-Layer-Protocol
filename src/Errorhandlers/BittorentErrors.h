@@ -17,4 +17,12 @@ struct Invalid_Torrent_File : public std::logic_error {
   Invalid_Torrent_File();
 };
 
+struct NO_IP_Support : public std::logic_error {
+  NO_IP_Support();
+};
+
+struct NO_Memory : public std::logic_error {
+  NO_Memory();
+};
+
 #endif
