@@ -1,5 +1,4 @@
 #include "PeerManager.h"
-#include "Randomer.h"
 #include <cerrno>
 #include <cstring>
 #include <netinet/in.h>
@@ -22,49 +21,63 @@ void PeerManager::handle_socket_errno(int error) {
     ipv4_default_server_sockstore();
     server.socket = socket(server.store.ss_family, server.flags, server.trspt_proto);
     if (server.socket<0 && errno==EAFNOSUPPORT)
-      throw NO_IP_Support{};
+      throw Peer_Manager_SYS_Error{error};
+    else
+      server.ipv4_support=true;
+    return;
   }
-  if (error == ENOMEM)
-    throw NO_Memory{};
+  if (error == ENOMEM) {
+    throw Peer_Manager_SYS_Error{error};
+  }
+  throw Peer_Manager_SYS_Error{error};
 }
 
-void PeerManager::handle_ip_errno(int) {
-
+void PeerManager::handle_ip_errno(int error) {
+  if (error == ENODEV) {
+    server.ipv4_support = false;
+    return;
+  }
+  throw Peer_Manager_SYS_Error{error};
 }
 
 void PeerManager::handle_bind_errno(int error) {
   if (error == EADDRINUSE) {
-    ;
+    throw Peer_Manager_SYS_Error{error};
   }
+  throw Peer_Manager_SYS_Error{error};
 }
 
 void PeerManager::initialize_server_socket() {
   // create socket
   ipv6_default_server_sockstore();
   server.socket = socket(server.store.ss_family, server.flags, server.trspt_proto);
-  if (server.socket<0) handle_socket_errno(errno);
-  int ipv6only_off_return = setsockopt(server.socket, IPPROTO_IPV6, IPV6_V6ONLY, &server.off_ipv6only, sizeof(int));
-  if (ipv6only_off_return != 0) handle_ip_errno(errno);
-
+  if (server.socket<0)
+    handle_socket_errno(errno);
+  if (server.store.ss_family == AF_INET6) {
+    int ipv6only_off_return = setsockopt(server.socket, IPPROTO_IPV6, IPV6_V6ONLY, &server.off_ipv6only, sizeof(server.off_ipv6only));
+    if (ipv6only_off_return == 0)
+      server.ipv4_support = true;
+    else
+      handle_ip_errno(errno);
+  }
   // bind socket
   if (server.store.ss_family == AF_INET6) {
     sockaddr_in6* ipv6_intf = (sockaddr_in6*) &server.store;
     ipv6_intf->sin6_addr = in6addr_any;
-    ipv6_intf->sin6_port = htons(server.new_port.get());
+    ipv6_intf->sin6_port = 0;
   } else {
     sockaddr_in* ipv4_intf = (sockaddr_in*) &server.store;
     ipv4_intf->sin_addr.s_addr = INADDR_ANY;
-    ipv4_intf->sin_port = htons(server.new_port.get());
+    ipv4_intf->sin_port = 0;
   }
-  do {
-    int bind_return = bind(server.socket, (sockaddr*)(&server.store), sizeof(server.store_len));
+  while (true) {
+    int bind_return = bind(server.socket, (sockaddr*)(&server.store), server.store_len);
     if (bind_return == 0) break;
     handle_bind_errno(errno);
-  } while( true );
-
+  }
   // mark as listening
   int listen_return = listen(server.socket, 0);
-  if(listen_return != 0)
+  if (listen_return != 0)
     ;
 
   // set callback for io watcher

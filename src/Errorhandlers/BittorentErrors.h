@@ -2,6 +2,7 @@
 #define BITTORRENT_ERRORS
 
 #include <stdexcept>
+#include <system_error>
 
 bool error_with_reason(const char *reason);
 
@@ -25,4 +26,7 @@ struct NO_Memory : public std::logic_error {
   NO_Memory();
 };
 
+struct Peer_Manager_SYS_Error : public std::system_error {
+  Peer_Manager_SYS_Error(int error);
+};
 #endif

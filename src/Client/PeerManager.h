@@ -35,7 +35,7 @@ class PeerManager {
     int flags {SOCK_STREAM|SOCK_NONBLOCK};
     int trspt_proto{IPPROTO_TCP};
     int off_ipv6only{0};
-    int_randomer<in_port_t> new_port {32768, 60999};
+    bool ipv4_support{false};
   };
 
   ev::dynamic_loop event_loop;
