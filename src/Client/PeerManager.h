@@ -39,8 +39,8 @@ class PeerManager {
   };
 
   ev::dynamic_loop event_loop;
-  ev::timer timer;
-  ev::io socket_watcher;
+  ev::timer peer_pool_timer;
+  ev::io server_socket_watcher;
   ev::async queue_consumer_watcher;
 
   bool seeding {false};
@@ -58,7 +58,6 @@ class PeerManager {
   void handle_socket_errno(int);
   void handle_ip_errno(int);
   void handle_bind_errno(int);
-  void handle_listen_errno(int);
   void handle_connect_errno(int);
   void handle_peer_errno(int);
 

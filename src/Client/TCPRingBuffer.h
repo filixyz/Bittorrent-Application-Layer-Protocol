@@ -8,7 +8,7 @@ class tcp_buffer {
 
   ost prev_action = R;
   std::size_t read{0}, write{0};
-  std::array<std::uint8_t, (std::uint64_t(1)<<client::constants::tcp_bufexp ) > buffer;
+  std::array<std::uint8_t, (std::uint64_t(1)<<bprotocol::constants::tcp_bufexp ) > buffer;
   bool empty();
   bool full();
   std::size_t mask(std::size_t);

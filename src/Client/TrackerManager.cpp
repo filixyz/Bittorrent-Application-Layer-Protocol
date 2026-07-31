@@ -99,7 +99,7 @@ int TrackerManager::initialize_libev() {
 }
 
 void TrackerManager::initialize_state_system() {
-  while((state_change_signal_fd = eventfd(0, EFD_CLOEXEC|EFD_NONBLOCK))==-1);
+  while((state_change_signal_fd = eventfd(0, EFD_CLOEXEC|EFD_NONBLOCK))==-1); // possible bug
   state_event_wtc.set(state_change_signal_fd, ev::READ);
   state_event_wtc.set(event_loop);
   state_event_wtc.set <TrackerManager, &TrackerManager::state_change_handler> (this);
@@ -129,7 +129,7 @@ std::string TrackerManager::get_request_params() const
   HTTPHandler::escape_byte_string(info_hash_byte_escaped_copy);
   std::array<std::string, 8> params{
     make_param("info_hash", info_hash_byte_escaped_copy),
-    make_param("peer_id", client::constants::client_id),
+    make_param("peer_id", bprotocol::constants::client_id),
     make_param("port", std::to_string(listening_port)),
     make_param("uploaded", std::to_string(tracker_context.uploaded)),
     make_param("downloaded", std::to_string(tracker_context.downloaded)),

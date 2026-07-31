@@ -1,4 +1,5 @@
 #include "PeerManager.h"
+#include "Constants.h"
 #include <cerrno>
 #include <cstring>
 #include <netinet/in.h>
@@ -42,7 +43,6 @@ void PeerManager::handle_ip_errno(int error) {
 
 void PeerManager::handle_bind_errno(int error) {
   if (error == EADDRINUSE) {
-    throw Peer_Manager_SYS_Error{error};
   }
   throw Peer_Manager_SYS_Error{error};
 }
@@ -53,6 +53,7 @@ void PeerManager::initialize_server_socket() {
   server.socket = socket(server.store.ss_family, server.flags, server.trspt_proto);
   if (server.socket<0)
     handle_socket_errno(errno);
+  // put off ipv6 only
   if (server.store.ss_family == AF_INET6) {
     int ipv6only_off_return = setsockopt(server.socket, IPPROTO_IPV6, IPV6_V6ONLY, &server.off_ipv6only, sizeof(server.off_ipv6only));
     if (ipv6only_off_return == 0)
@@ -76,9 +77,10 @@ void PeerManager::initialize_server_socket() {
     handle_bind_errno(errno);
   }
   // mark as listening
-  int listen_return = listen(server.socket, 0);
+  int listen_return = listen(server.socket, bprotocol::constants::connection_backlog);
   if (listen_return != 0)
-    ;
-
+    Peer_Manager_SYS_Error{errno};
   // set callback for io watcher
+  server_socket_watcher.set(server.socket, ev::READ);
+  server_socket_watcher.set<PeerManager, &PeerManager::server_socket_callback>(this);
 }
