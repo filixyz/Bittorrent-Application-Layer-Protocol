@@ -8,4 +8,5 @@ namespace bprotocol::constants {
   inline constexpr std::size_t tcp_bufexp = 16; // 2^tcp_bufexp: if 16 65,636 bytes as buffer size
   inline constexpr std::size_t max_inflight_conns = 5;
   inline constexpr std::size_t connection_backlog = 128;
+  inline constexpr std::size_t rankify_duration = 10; //secs
 }

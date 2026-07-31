@@ -47,6 +47,27 @@ void PeerManager::handle_bind_errno(int error) {
   throw Peer_Manager_SYS_Error{error};
 }
 
+int PeerManager::initialize_libev() {
+  return ev::recommended_backends();
+}
+
+void PeerManager::initialize_manager_watchers() {
+  // init server socket watcher
+  server_socket_watcher.set(event_loop);
+  server_socket_watcher.set(server.socket, ev::READ);
+  server_socket_watcher.set<PeerManager, &PeerManager::server_socket_callback>(this);
+  // init peer_pool_timer
+  peer_pool_timer.set(event_loop);
+  peer_pool_timer.set(bprotocol::constants::rankify_duration);
+  peer_pool_timer.set<PeerManager, &PeerManager::rankify_peers_callback>(this);
+  // init queue consumer watcher
+  queue_consumer_watcher.set(event_loop);
+  queue_consumer_watcher.set<PeerManager, &PeerManager::discovered_peer_callback>(this);
+  // init peer_update_watcher
+  peer_update_watcher.set(event_loop);
+  peer_update_watcher.set<PeerManager, &PeerManager::peer_update_callback>(this);
+}
+
 void PeerManager::initialize_server_socket() {
   // create socket
   ipv6_default_server_sockstore();
@@ -80,7 +101,4 @@ void PeerManager::initialize_server_socket() {
   int listen_return = listen(server.socket, bprotocol::constants::connection_backlog);
   if (listen_return != 0)
     Peer_Manager_SYS_Error{errno};
-  // set callback for io watcher
-  server_socket_watcher.set(server.socket, ev::READ);
-  server_socket_watcher.set<PeerManager, &PeerManager::server_socket_callback>(this);
 }

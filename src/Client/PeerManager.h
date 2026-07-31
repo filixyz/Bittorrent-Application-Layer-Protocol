@@ -42,6 +42,7 @@ class PeerManager {
   ev::timer peer_pool_timer;
   ev::io server_socket_watcher;
   ev::async queue_consumer_watcher;
+  ev::async peer_update_watcher;
 
   bool seeding {false};
   bool ppool_cascade_draining{false};
@@ -62,7 +63,9 @@ class PeerManager {
   void handle_peer_errno(int);
 
   void initialize_server_socket();
-  void initialize_libev();
+  void initialize_manager_watchers();
+  int  initialize_libev();
+
   void server_socket_callback();
   void peer_socket_callback();
   void optimistic_unchoke();
