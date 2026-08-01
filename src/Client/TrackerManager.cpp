@@ -1,7 +1,7 @@
 #include "TrackerManager.h"
 #include "Constants.h"
 #include "HTTPHandler.h"
-#include "Hasher.h"
+#include "PeerManager.h"
 #include <array>
 #include <cassert>
 #include <cstdlib>
@@ -84,10 +84,7 @@ void TrackerManager::populate_manager_space() {
 }
 
 void TrackerManager::initialize_info_hash_byte() {
-  std::string_view info_key = torrent.get_info_key();
-  const std::span<const std::byte> hash_byte_view(reinterpret_cast<const std::byte*>(info_key.data()), info_key.size());
-  const std::vector<std::byte> info_hash_bytes = Hasher::get_sha1(hash_byte_view);
-  info_hash_byte = Hasher::byte_stringify_hash(info_hash_bytes);
+  info_hash_byte = torrent.get_info_hash_bytes();
 }
 
 void TrackerManager::initialize_tracker_context() {
@@ -106,11 +103,12 @@ void TrackerManager::initialize_state_system() {
   state_event_wtc.start();
 }
 
-TrackerManager::TrackerManager(TorrentFile& torrent_, unsigned psp_)
-  : event_loop(initialize_libev()) ,protocol(event_loop), torrent(torrent_), tracker_context(), listening_port(psp_) {
+TrackerManager::TrackerManager(TorrentFile& torrent_, PeerManager& peer_manager_)
+  : event_loop(initialize_libev()) ,protocol(event_loop), torrent(torrent_), tracker_context(), peer_manager(peer_manager_) {
   initialize_info_hash_byte();
   initialize_tracker_context();
   initiatlize_trackers(torrent.get_tracker_urls());
+  listening_port = peer_manager.get_listening_port();
   initialize_state_system();
   protocol.http.start_backend();
   std::cout << "\nTorrent is file: " << torrent.torrent_is_file() << " Torrent size: " << torrent.get_download_size() << '\n';

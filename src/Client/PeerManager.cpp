@@ -1,5 +1,6 @@
 #include "PeerManager.h"
 #include "Constants.h"
+#include "TorrentFile.h"
 #include <cerrno>
 #include <cstring>
 #include <netinet/in.h>
@@ -42,8 +43,7 @@ void PeerManager::handle_ip_errno(int error) {
 }
 
 void PeerManager::handle_bind_errno(int error) {
-  if (error == EADDRINUSE) {
-  }
+  if (error == EADDRINUSE) {}
   throw Peer_Manager_SYS_Error{error};
 }
 
@@ -97,8 +97,25 @@ void PeerManager::initialize_server_socket() {
     if (bind_return == 0) break;
     handle_bind_errno(errno);
   }
+  // get listening port
+  int get_sock_name_return = getsockname(server.socket, (sockaddr*) &server.store , &server.store_len);
+  if (get_sock_name_return != 0)
+    throw Peer_Manager_SYS_Error{errno};
+  server.port = ntohs( server.store.ss_family==AF_INET6 ?
+    ((sockaddr_in6*)&server.store)->sin6_port : ((sockaddr_in*)&server.store)->sin_port
+  );
   // mark as listening
   int listen_return = listen(server.socket, bprotocol::constants::connection_backlog);
   if (listen_return != 0)
-    Peer_Manager_SYS_Error{errno};
+    throw Peer_Manager_SYS_Error{errno};
+}
+
+PeerManager::PeerManager(TorrentFile& torrent_p): torrent(torrent_p), peer_connections{} {
+  initialize_libev();
+  initialize_server_socket();
+  initialize_manager_watchers();
+}
+
+int PeerManager::get_listening_port() {
+  return server.port;
 }

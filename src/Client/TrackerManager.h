@@ -2,6 +2,7 @@
 #define TRACKER_MAN
 
 #include "HTTPHandler.h"
+#include "PeerManager.h"
 #include "UDPHandler.h"
 #include "TorrentFile.h"
 #include <chrono>
@@ -27,6 +28,7 @@ class TrackerManager {
   trkr_context_t tracker_context;
   std::unordered_map<std::string, TrackerManager::Tracker> tracker_connections;
   std::vector<Tracker*> manager_space;
+  PeerManager& peer_manager;
   unsigned listening_port;
   std::string info_hash_byte;
   void (TrackerManager::*current_state)();
@@ -66,7 +68,7 @@ class TrackerManager {
   // udp protocol failsafes; remove when udp protocol implemented
 
 public:
-  TrackerManager(TorrentFile&, unsigned);
+  TrackerManager(TorrentFile&, PeerManager&);
   void test(int);
   void start_tracker_manager();
   void start();

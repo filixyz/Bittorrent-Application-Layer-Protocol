@@ -19,6 +19,14 @@ TorrentFile::TorrentFile(const std::filesystem::path pathname) {
     throw Invalid_Torrent_File{};
   }
   compute_download_size();
+  initialize_info_hash_bytes();
+}
+
+void TorrentFile::initialize_info_hash_bytes(){
+  std::string_view info_key = get_info_key();
+  const std::span<const std::byte> hash_byte_view(reinterpret_cast<const std::byte*>(info_key.data()), info_key.size());
+  const std::vector<std::byte> info_hash_bytes = Hasher::get_sha1(hash_byte_view);
+  info_hash_byte = Hasher::byte_stringify_hash(info_hash_bytes);
 }
 
 void TorrentFile::compute_download_size() {
@@ -73,4 +81,8 @@ bool TorrentFile::torrent_is_file() const {
 
 std::int64_t TorrentFile::get_download_size() const {
   return file_size;
+}
+
+std::string_view TorrentFile::get_info_hash_bytes() const {
+  return info_hash_byte;
 }

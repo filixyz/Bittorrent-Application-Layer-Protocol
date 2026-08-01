@@ -1,6 +1,7 @@
 #ifndef PEER_MANAGER
 #define PEER_MANAGER
 
+#include <cstddef>
 #include <cstdint>
 #include <queue>
 #include <unistd.h>
@@ -16,6 +17,7 @@
 #include "TCPRingBuffer.h"
 #include "Randomer.h"
 #include "../Errorhandlers/BittorentErrors.h"
+#include "TorrentFile.h"
 //Unix Networking Headers here
 #include <sys/socket.h>
 #include <fcntl.h>
@@ -24,9 +26,6 @@
 #include <cerrno>
 
 class PeerManager {
-  using socket_handle_t = int;
-  struct PeerHandle;
-  struct PeerConnection;
   struct server_sock_store
   {
     int socket{};
@@ -36,6 +35,30 @@ class PeerManager {
     int trspt_proto{IPPROTO_TCP};
     int off_ipv6only{0};
     bool ipv4_support{false};
+    int port{0};
+  };
+  struct PeerHandle
+  {
+    enum pstate {DISCOVERED, CONNECTING, CONNECTED, DISCONNECTED, DEAD};
+    pstate state {DISCOVERED};
+    std::string peer_id{""};
+    int socket{};
+    DynamicBitset bitfield;
+    tcp_buffer recv_buffer;
+    tcp_buffer send_buffer;
+    enum class from: std::uint8_t { me=0, them=1 };
+    std::bitset<2> choke{0x2};
+    std::bitset<2> interest{0x2};
+    std::size_t down_rate{0};
+    std::size_t upld_rate{0};
+    ev_io socket_watcher;
+    ev_timer timer_watcher;
+  };
+  struct PeerConnection{
+    static PeerHandle nullpeer;
+    PeerHandle* peer {&nullpeer};
+    void set_peer(PeerHandle&);
+    void reset();
   };
 
   ev::dynamic_loop event_loop;
@@ -44,13 +67,15 @@ class PeerManager {
   ev::async queue_consumer_watcher;
   ev::async peer_update_watcher;
 
+  TorrentFile& torrent;
+
   bool seeding {false};
   bool ppool_cascade_draining{false};
   server_sock_store server;
   std::queue<peer_address> discovered_peers;
   std::queue<peer_update> peer_updates;
   std::unordered_map<std::string, PeerHandle> peer_handles;
-  std::size_t connected_peers_count;
+  std::size_t connected_peers_count{};
   std::vector<PeerConnection> peer_connections;
 
   void ipv6_default_server_sockstore();
@@ -62,9 +87,10 @@ class PeerManager {
   void handle_connect_errno(int);
   void handle_peer_errno(int);
 
+  int  initialize_libev();
   void initialize_server_socket();
   void initialize_manager_watchers();
-  int  initialize_libev();
+  void initialize_peer_pool();
 
   void server_socket_callback();
   void peer_socket_callback();
@@ -74,30 +100,9 @@ class PeerManager {
   void discovered_peer_callback();
 
 public:
+  PeerManager(TorrentFile&);
   void run_manager();
-};
-
-
-struct PeerManager::PeerConnection {
-  PeerHandle* peer;
-  ev::io sock_watch;
-};
-
-struct PeerManager::PeerHandle {
-  enum pstate {DISCOVERED, CONNECTING, CONNECTED, DISCONNECTED, DEAD};
-  pstate state {DISCOVERED};
-  std::string peer_id;
-  socket_handle_t socket_fd;
-  DynamicBitset bitfield;
-  tcp_buffer recv_buffer;
-  tcp_buffer send_buffer;
-  enum class from: std::uint8_t { me=0, them=1 };
-  std::bitset<2> choke{0x2};
-  std::bitset<2> interest{0x2};
-  std::size_t down_rate{0};
-  std::size_t upld_rate{0};
-  ev_io socket_watcher;
-  ev_timer timer_watcher;
+  int get_listening_port();
 };
 
 #endif
