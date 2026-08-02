@@ -6,6 +6,8 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
+PeerManager::PeerHandle PeerManager::PeerConnection::nullpeer{"nullpeer", 0};
+
 void PeerManager::ipv6_default_server_sockstore() {
   std::memset(&server.store, 0, sizeof(sockaddr_storage));
   server.store.ss_family = AF_INET6;
@@ -68,6 +70,7 @@ void PeerManager::initialize_manager_watchers() {
   peer_update_watcher.set<PeerManager, &PeerManager::peer_update_callback>(this);
 }
 
+
 void PeerManager::initialize_server_socket() {
   // create socket
   ipv6_default_server_sockstore();
@@ -110,8 +113,7 @@ void PeerManager::initialize_server_socket() {
     throw Peer_Manager_SYS_Error{errno};
 }
 
-PeerManager::PeerManager(TorrentFile& torrent_p): torrent(torrent_p), peer_connections{} {
-  initialize_libev();
+PeerManager::PeerManager(TorrentFile& torrent_p): event_loop(initialize_libev()), torrent(torrent_p) {
   initialize_server_socket();
   initialize_manager_watchers();
 }

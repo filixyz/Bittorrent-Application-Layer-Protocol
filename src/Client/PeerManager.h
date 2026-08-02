@@ -43,6 +43,7 @@ class PeerManager {
     pstate state {DISCOVERED};
     std::string peer_id{""};
     int socket{};
+    sockaddr_storage store{};
     DynamicBitset bitfield;
     tcp_buffer recv_buffer;
     tcp_buffer send_buffer;
@@ -53,9 +54,10 @@ class PeerManager {
     std::size_t upld_rate{0};
     ev_io socket_watcher;
     ev_timer timer_watcher;
+    PeerHandle(std::string, std::size_t);
   };
   struct PeerConnection{
-    static PeerHandle nullpeer;
+    static PeerHandle nullpeer; // dummy placeholder peer
     PeerHandle* peer {&nullpeer};
     void set_peer(PeerHandle&);
     void reset();
@@ -67,16 +69,16 @@ class PeerManager {
   ev::async queue_consumer_watcher;
   ev::async peer_update_watcher;
 
-  TorrentFile& torrent;
+  const TorrentFile& torrent;
 
   bool seeding {false};
   bool ppool_cascade_draining{false};
   server_sock_store server;
-  std::queue<peer_address> discovered_peers;
-  std::queue<peer_update> peer_updates;
-  std::unordered_map<std::string, PeerHandle> peer_handles;
-  std::size_t connected_peers_count{};
-  std::vector<PeerConnection> peer_connections;
+  std::queue<peer_address> discovered_peers{};
+  std::queue<peer_update> peer_updates{};
+  std::unordered_map<std::string, PeerHandle> peer_handles{};
+  std::size_t connected_peers_count{0};
+  std::vector<PeerConnection> peer_connections{};
 
   void ipv6_default_server_sockstore();
   void ipv4_default_server_sockstore();
