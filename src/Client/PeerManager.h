@@ -24,6 +24,8 @@
 #include <signal.h>
 #include <netinet/in.h>
 #include <cerrno>
+#include <arpa/inet.h>
+#include <netdb.h>
 
 class PeerManager {
   struct server_sock_store
@@ -52,8 +54,8 @@ class PeerManager {
     std::bitset<2> interest{0x2};
     std::size_t down_rate{0};
     std::size_t upld_rate{0};
-    ev_io socket_watcher;
-    ev_timer timer_watcher;
+    ev::io socket_watcher;
+    ev::timer timer_watcher;
     PeerHandle(std::string, std::size_t);
   };
   struct PeerConnection{
@@ -86,7 +88,6 @@ class PeerManager {
   void handle_socket_errno(int);
   void handle_ip_errno(int);
   void handle_bind_errno(int);
-  void handle_connect_errno(int);
   void handle_peer_errno(int);
 
   int  initialize_libev();
@@ -94,7 +95,9 @@ class PeerManager {
   void initialize_manager_watchers();
   void initialize_peer_pool();
 
-  void server_socket_callback();
+  bool handle_server_errno(int);
+  bool accept_peer_connection();
+  void server_socket_callback(ev::io&, int);
   void peer_socket_callback();
   void optimistic_unchoke();
   void rankify_peers_callback();

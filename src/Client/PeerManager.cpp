@@ -1,9 +1,15 @@
 #include "PeerManager.h"
 #include "Constants.h"
 #include "TorrentFile.h"
+#include <arpa/inet.h>
+#include <cassert>
 #include <cerrno>
+#include <cstdint>
 #include <cstring>
+#include <memory>
+#include <netdb.h>
 #include <netinet/in.h>
+#include <string>
 #include <sys/socket.h>
 
 PeerManager::PeerHandle PeerManager::PeerConnection::nullpeer{"nullpeer", 0};
@@ -116,6 +122,71 @@ void PeerManager::initialize_server_socket() {
 PeerManager::PeerManager(TorrentFile& torrent_p): event_loop(initialize_libev()), torrent(torrent_p) {
   initialize_server_socket();
   initialize_manager_watchers();
+}
+
+bool PeerManager::handle_server_errno(int error){
+  if (error == EAGAIN) return false;
+  if (error == EWOULDBLOCK) return false;
+  if (error == EINTR) return true;
+  if (error == ECONNABORTED) return true;
+  return false;
+}
+
+bool PeerManager::accept_peer_connection() {
+  sockaddr_storage new_store{};
+  int accept_return = accept(server.socket, (sockaddr*)&new_store, &server.store_len);
+  if (accept_return!=0)
+    return handle_server_errno(errno);
+
+  // extract peer id
+  sa_family_t peer_family;
+  in_port_t   peer_port;
+  void*       peer_addr_src;
+  if (server.store.ss_family==AF_INET6) {
+    sockaddr_in6* peer6 = (sockaddr_in6*) &new_store;
+    if (IN6_IS_ADDR_V4MAPPED(&peer6->sin6_addr)) {
+      peer_family = AF_INET;
+      peer_addr_src = &peer6->sin6_addr.s6_addr[12];
+    } else {
+      peer_family = AF_INET6;
+      peer_addr_src = &peer6->sin6_addr;
+    }
+    peer_port = ntohs(peer6->sin6_port);
+  }
+  else if (server.store.ss_family==AF_INET) {
+    sockaddr_in* peer4 = (sockaddr_in*) &new_store;
+    peer_family = AF_INET;
+    peer_addr_src = &peer4->sin_addr;
+    peer_port = ntohs(peer4->sin_port);
+  }
+  else {
+    assert(false && "Unexpected Address Family: accept_peer_connection");
+  }
+  char peeripvsbuf [INET6_ADDRSTRLEN];
+  inet_ntop(peer_family, peer_addr_src, peeripvsbuf, sizeof peeripvsbuf);
+  std::string peer_id = std::string{peeripvsbuf} + ':' + std::to_string(peer_port);
+
+  // check if peer_id exists in peer handles map
+  if (peer_handles.contains(peer_id)) {
+    // This means peer at one time peer connected successfully and diconnected
+    // and now has connected again sucessfully
+    // in this case we
+    // 1. change the socket fd
+    // 2. mark as connected, lock peer_connections mutex and add into peer_connections
+    // return here so server can process backlogged connections
+    return true;
+  }
+
+
+  // end inirialzation here
+  return true;
+}
+
+void PeerManager::server_socket_callback(ev::io& server, int event){
+  (void)event;(void)server;
+  bool pending_accepts = true;
+  while (connected_peers_count<bprotocol::constants::healthy_peer_count && pending_accepts)
+     pending_accepts = accept_peer_connection();
 }
 
 int PeerManager::get_listening_port() {
