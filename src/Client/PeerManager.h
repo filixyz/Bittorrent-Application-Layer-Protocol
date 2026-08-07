@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <queue>
 #include <unistd.h>
 #include <vector>
@@ -43,7 +44,7 @@ class PeerManager {
   {
     enum pstate {DISCOVERED, CONNECTING, CONNECTED, DISCONNECTED, DEAD};
     pstate state {DISCOVERED};
-    std::string peer_id{""};
+    const std::string peer_id{""};
     int socket{};
     sockaddr_storage store{};
     DynamicBitset bitfield;
@@ -59,10 +60,11 @@ class PeerManager {
     PeerHandle(std::string, std::size_t);
   };
   struct PeerConnection{
-    static PeerHandle nullpeer; // dummy placeholder peer
     PeerHandle* peer {&nullpeer};
     void set_peer(PeerHandle&);
     void reset();
+  private:
+    static PeerHandle nullpeer; // dummy placeholder peer
   };
 
   ev::dynamic_loop event_loop;
@@ -80,6 +82,7 @@ class PeerManager {
   std::queue<peer_update> peer_updates{};
   std::unordered_map<std::string, PeerHandle> peer_handles{};
   std::size_t connected_peers_count{0};
+  std::mutex peer_pool_mutex;
   std::vector<PeerConnection> peer_connections{};
 
   void ipv6_default_server_sockstore();
@@ -95,9 +98,11 @@ class PeerManager {
   void initialize_manager_watchers();
   void initialize_peer_pool();
 
+  void add_connected_peer(PeerHandle&);
   bool handle_server_errno(int);
   bool accept_peer_connection();
   void server_socket_callback(ev::io&, int);
+
   void peer_socket_callback();
   void optimistic_unchoke();
   void rankify_peers_callback();

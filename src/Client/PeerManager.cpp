@@ -11,6 +11,8 @@
 #include <netinet/in.h>
 #include <string>
 #include <sys/socket.h>
+#include <tuple>
+#include <utility>
 
 PeerManager::PeerHandle PeerManager::PeerConnection::nullpeer{"nullpeer", 0};
 
@@ -135,7 +137,7 @@ bool PeerManager::handle_server_errno(int error){
 bool PeerManager::accept_peer_connection() {
   sockaddr_storage new_store{};
   int accept_return = accept(server.socket, (sockaddr*)&new_store, &server.store_len);
-  if (accept_return!=0)
+  if (accept_return<0)
     return handle_server_errno(errno);
 
   // extract peer id
@@ -166,20 +168,27 @@ bool PeerManager::accept_peer_connection() {
   inet_ntop(peer_family, peer_addr_src, peeripvsbuf, sizeof peeripvsbuf);
   std::string peer_id = std::string{peeripvsbuf} + ':' + std::to_string(peer_port);
 
-  // check if peer_id exists in peer handles map
-  if (peer_handles.contains(peer_id)) {
-    // This means peer at one time peer connected successfully and diconnected
-    // and now has connected again sucessfully
-    // in this case we
-    // 1. change the socket fd
-    // 2. mark as connected, lock peer_connections mutex and add into peer_connections
-    // return here so server can process backlogged connections
-    return true;
+  // tries to emplace new peer or updates peer if already disocvered before
+  auto [peer_ref, inserted] = peer_handles.try_emplace(peer_id, peer_id, torrent.get_piece_length());
+  if (!inserted) {
+    ; // This is a reconnect
   }
-
-
-  // end inirialzation here
+  auto& new_or_found_peer = peer_ref->second;
+  new_or_found_peer.socket = accept_return;
+  new_or_found_peer.state=PeerHandle::CONNECTED;
+  memcpy(&new_or_found_peer.store, &new_store, server.store_len);
+  add_connected_peer(new_or_found_peer);
+  // TransferManager.acquire_watchers(new_peer);
   return true;
+}
+
+void PeerManager::add_connected_peer(PeerHandle& peer) {
+  PeerConnection new_conn{};
+  new_conn.peer = &peer;
+  peer_pool_mutex.lock();
+  peer_connections.push_back(std::move(new_conn));
+  connected_peers_count++;
+  peer_pool_mutex.unlock();
 }
 
 void PeerManager::server_socket_callback(ev::io& server, int event){
