@@ -1,20 +1,58 @@
 #include "PeerManager.h"
 #include "Constants.h"
+#include "DynamicBitset.h"
 #include "TorrentFile.h"
+#include <algorithm>
 #include <arpa/inet.h>
 #include <cassert>
 #include <cerrno>
-#include <cstdint>
 #include <cstring>
-#include <memory>
+#include <ev++.h>
+#include <ev.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <string>
 #include <sys/socket.h>
-#include <tuple>
+#include <unistd.h>
 #include <utility>
 
-PeerManager::PeerHandle PeerManager::PeerConnection::nullpeer{"nullpeer", 0};
+std::pair<ssize_t, bool> PeerManager::PeerHandle::recv() {
+  auto [io_vec, io_possible] = recv_buffer.prepare_write();
+  ephemereal_hdr.msg_iov = io_vec.first;
+  ephemereal_hdr.msg_iovlen = io_vec.second;
+  auto recv_return = recvmsg(socket, &ephemereal_hdr, 0);
+  return {recv_return, io_possible};
+}
+
+std::pair<ssize_t, bool> PeerManager::PeerHandle::send() {
+  auto [io_vec, io_possible] = send_buffer.prepare_read();
+  ephemereal_hdr.msg_iov = io_vec.first;
+  ephemereal_hdr.msg_iovlen = io_vec.second;
+  auto send_return = sendmsg(socket, &ephemereal_hdr, MSG_NOSIGNAL); // No sigpipe.
+  return {send_return, io_possible};
+}
+
+PeerManager::PeerHandle::PeerHandle(std::string a, std::size_t b): peer_id(a), bitfield(b) {
+  ephemereal_hdr.msg_name = nullptr;
+  ephemereal_hdr.msg_control = nullptr;
+}
+
+PeerManager::PeerHandle PeerManager::PeerConnection::dummypeer{"dummy", 0};
+
+void PeerManager::PeerConnection::set_endpoint(PeerHandle& peer_) {
+  peer = &peer_;
+}
+
+bool PeerManager::PeerConnection::is_dummy() {
+  return peer == &dummypeer;
+}
+
+void PeerManager::PeerConnection::endpoint_disconnected() {
+  peer            = &dummypeer;
+  down_rate       = upld_rate           = 0;
+  choked_by_them  = choked_by_them      = true;
+  them_interested = interested_in_them  = false;
+}
 
 void PeerManager::ipv6_default_server_sockstore() {
   std::memset(&server.store, 0, sizeof(sockaddr_storage));
@@ -121,7 +159,9 @@ void PeerManager::initialize_server_socket() {
     throw Peer_Manager_SYS_Error{errno};
 }
 
-PeerManager::PeerManager(TorrentFile& torrent_p): event_loop(initialize_libev()), torrent(torrent_p) {
+PeerManager::PeerManager(TorrentFile& torrent_p)
+  : event_loop(initialize_libev()), torrent(torrent_p), peer_connections(bprotocol::constants::healthy_peer_count*2) {
+  ev_set_userdata(event_loop.raw_loop, this);
   initialize_server_socket();
   initialize_manager_watchers();
 }
@@ -136,7 +176,7 @@ bool PeerManager::handle_server_errno(int error){
 
 bool PeerManager::accept_peer_connection() {
   sockaddr_storage new_store{};
-  int accept_return = accept(server.socket, (sockaddr*)&new_store, &server.store_len);
+  int accept_return = accept4(server.socket, (sockaddr*)&new_store, &server.store_len, SOCK_NONBLOCK);
   if (accept_return<0)
     return handle_server_errno(errno);
 
@@ -170,25 +210,74 @@ bool PeerManager::accept_peer_connection() {
 
   // tries to emplace new peer or updates peer if already disocvered before
   auto [peer_ref, inserted] = peer_handles.try_emplace(peer_id, peer_id, torrent.get_piece_length());
-  if (!inserted) {
+  if (!inserted)
     ; // This is a reconnect
-  }
   auto& new_or_found_peer = peer_ref->second;
   new_or_found_peer.socket = accept_return;
-  new_or_found_peer.state=PeerHandle::CONNECTED;
+  new_or_found_peer.state=PeerHandle::S_HANDSHAKE;
   memcpy(&new_or_found_peer.store, &new_store, server.store_len);
-  add_connected_peer(new_or_found_peer);
-  // TransferManager.acquire_watchers(new_peer);
+  acquire_peer(new_or_found_peer);
+
   return true;
 }
 
+void PeerManager::acquire_peer(PeerHandle& peer) {
+  peer.socket_watcher.set(peer.socket, ev::READ);
+  peer.socket_watcher.set<&PeerManager::peer_socket_callback>();
+  peer.socket_watcher.data = &peer;
+  peer.socket_watcher.set(event_loop);
+  peer.socket_watcher.start();
+}
+
+void PeerManager::peer_socket_callback(ev::io& sw, int event) {
+  PeerManager& manager = *static_cast<PeerManager*>(ev_userdata(sw.loop.raw_loop));
+  PeerHandle& peer = *static_cast<PeerHandle*>(sw.data);
+  if (event & ev::READ) {
+    if (peer.state == PeerHandle::C_HANDSHAKE || peer.state == PeerHandle::S_HANDSHAKE) {
+      auto [recv_return, pbuffer_full] = peer.recv();
+      if (recv_return<0) {
+        handle_peer_errno(errno, peer);
+        return;
+      }
+      peer.recv_buffer.commit_write(recv_return);
+      if ( manager.parse_handshake(peer) ) {
+        if (peer.state == PeerHandle::S_HANDSHAKE)
+          manager.send_handshake(peer);
+        peer.state = PeerHandle::CONNECTED;
+        manager.add_connected_peer(peer);
+        return;
+      }
+      return;
+    }
+  }
+
+  if (event & ev::WRITE) {
+    // handle partial handshake sends
+    if (peer.state == PeerHandle::C_HANDSHAKE || peer.state == PeerHandle::S_HANDSHAKE) {
+      auto [send_return, pbuffer_empty] = peer.send();
+      if (send_return<0) {
+        handle_peer_errno(errno, peer);
+        return;
+      }
+      peer.send_buffer.commit_read(send_return);
+      return;
+    }
+  }
+
+  if (event & ev::ERROR) {
+
+  }
+}
+
 void PeerManager::add_connected_peer(PeerHandle& peer) {
-  PeerConnection new_conn{};
-  new_conn.peer = &peer;
-  peer_pool_mutex.lock();
-  peer_connections.push_back(std::move(new_conn));
-  connected_peers_count++;
-  peer_pool_mutex.unlock();
+  for (auto& connection : peer_connections) {
+    if (connection.is_dummy()) {
+      connection.set_endpoint(peer);
+      ++connected_peers_count;
+      return;
+    }
+  }
+  // send connected peer to transfer manager for management here.
 }
 
 void PeerManager::server_socket_callback(ev::io& server, int event){

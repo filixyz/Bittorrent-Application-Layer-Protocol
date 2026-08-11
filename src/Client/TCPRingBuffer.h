@@ -1,7 +1,12 @@
+#pragma once
 #include "Constants.h"
 #include <array>
 #include <cstdint>
 #include <sys/uio.h>
+
+// .first holds actual prepare tuple,
+// .second tells if I/0 is possible with buffer
+using prepare_t = std::pair<std::pair<iovec[2], std::size_t>, bool>;
 
 class tcp_buffer {
   enum ost { R, W };
@@ -16,8 +21,8 @@ class tcp_buffer {
 
 public:
   tcp_buffer() = default;
-  std::size_t prepare_read(struct iovec*);
-  std::size_t prepare_write(struct iovec*);
+  prepare_t prepare_read();
+  prepare_t prepare_write();
   void commit_read(std::size_t);
   void commit_write(std::size_t);
   std::size_t r_available();

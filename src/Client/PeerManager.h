@@ -1,11 +1,13 @@
 #ifndef PEER_MANAGER
 #define PEER_MANAGER
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
 #include <queue>
 #include <unistd.h>
+#include <utility>
 #include <vector>
 #include <string>
 #include <bitset>
@@ -42,30 +44,40 @@ class PeerManager {
   };
   struct PeerHandle
   {
-    enum pstate {DISCOVERED, CONNECTING, CONNECTED, DISCONNECTED, DEAD};
+    enum pstate: std::uint8_t {DISCOVERED, S_HANDSHAKE, C_HANDSHAKE, CONNECTED, DISCONNECTED, DEAD};
     pstate state {DISCOVERED};
     const std::string peer_id{""};
     int socket{};
     sockaddr_storage store{};
     DynamicBitset bitfield;
-    tcp_buffer recv_buffer;
-    tcp_buffer send_buffer;
-    enum class from: std::uint8_t { me=0, them=1 };
-    std::bitset<2> choke{0x2};
-    std::bitset<2> interest{0x2};
-    std::size_t down_rate{0};
-    std::size_t upld_rate{0};
+    tcp_buffer recv_buffer{};
+    tcp_buffer send_buffer{};
     ev::io socket_watcher;
     ev::timer timer_watcher;
+    msghdr ephemereal_hdr{};
+    inline std::pair<ssize_t, bool> recv();
+    inline std::pair<ssize_t, bool> send();
     PeerHandle(std::string, std::size_t);
   };
-  struct PeerConnection{
-    PeerHandle* peer {&nullpeer};
-    void set_peer(PeerHandle&);
-    void reset();
+  struct PeerConnection
+  {
+    PeerHandle* peer {&dummypeer};
+    std::atomic<bool> choking_them{true};
+    std::atomic<bool> choked_by_them{true};
+    std::atomic<bool> interested_in_them{false};
+    std::atomic<bool> them_interested{false};
+    std::atomic<std::size_t> down_rate{0};
+    std::atomic<std::size_t> upld_rate{0};
+    void set_endpoint(PeerHandle&); // not implemented
+    bool is_dummy(); // not imeplemented
+    void endpoint_disconnected(); // not implemented
   private:
-    static PeerHandle nullpeer; // dummy placeholder peer
+    static PeerHandle dummypeer;
   };
+
+  // peer tools
+  bool parse_handshake(PeerHandle&);
+  bool send_handshake(PeerHandle&);
 
   ev::dynamic_loop event_loop;
   ev::timer peer_pool_timer;
@@ -82,8 +94,9 @@ class PeerManager {
   std::queue<peer_update> peer_updates{};
   std::unordered_map<std::string, PeerHandle> peer_handles{};
   std::size_t connected_peers_count{0};
-  std::mutex peer_pool_mutex;
   std::vector<PeerConnection> peer_connections{};
+  std::mutex peer_pool_mutex;
+  std::vector<PeerConnection*> connections_view{};
 
   void ipv6_default_server_sockstore();
   void ipv4_default_server_sockstore();
@@ -91,19 +104,23 @@ class PeerManager {
   void handle_socket_errno(int);
   void handle_ip_errno(int);
   void handle_bind_errno(int);
-  void handle_peer_errno(int);
 
   int  initialize_libev();
   void initialize_server_socket();
   void initialize_manager_watchers();
   void initialize_peer_pool();
 
+  void acquire_peer(PeerHandle&);
+  void release_peer(PeerHandle&);
+
   void add_connected_peer(PeerHandle&);
   bool handle_server_errno(int);
   bool accept_peer_connection();
   void server_socket_callback(ev::io&, int);
 
-  void peer_socket_callback();
+  void static handle_peer_errno(int, PeerHandle&);
+  void static peer_socket_callback(ev::io&, int);
+
   void optimistic_unchoke();
   void rankify_peers_callback();
   void peer_update_callback();
@@ -113,6 +130,7 @@ public:
   PeerManager(TorrentFile&);
   void run_manager();
   int get_listening_port();
+  // friend TransferManager;
 };
 
 #endif

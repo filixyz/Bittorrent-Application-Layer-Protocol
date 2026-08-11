@@ -1,5 +1,7 @@
 #include "TCPRingBuffer.h"
 #include <cstddef>
+#include <sys/uio.h>
+#include <utility>
 
 std::size_t tcp_buffer::mask(std::size_t idx) {
   return  idx & (buffer.size()-1);
@@ -17,32 +19,48 @@ std::size_t tcp_buffer::size(){
   return write>read ? write-read : buffer.size()-read+write;
 }
 
-std::size_t tcp_buffer::prepare_read(struct iovec* iov) {
+prepare_t tcp_buffer::prepare_read() {
+  prepare_t prepare;
   const std::size_t available = r_available();
   if(read < write || available == 0) {
-    iov[0].iov_base = &buffer[read];
-    iov[0].iov_len = available;
-    return 1;
+    prepare.first.first[0].iov_base = &buffer[read];
+    prepare.first.first[0].iov_len = available;
+    prepare.first.second = 1;
+    if (available==0)
+      prepare.second = false;
+    else
+      prepare.second = true;
+    return prepare;
   }
-  iov[0].iov_base = &buffer[read];
-  iov[0].iov_len = buffer.size() - read;
-  iov[1].iov_base = &buffer[0];
-  iov[1].iov_len = write;
-  return 2;
+  prepare.first.first[0].iov_base = &buffer[read];
+  prepare.first.first[0].iov_len = buffer.size() - read;
+  prepare.first.first[1].iov_base = &buffer[0];
+  prepare.first.first[1].iov_len = write;
+  prepare.first.second = 2;
+  prepare.second = true;
+  return prepare;
 }
 
-std::size_t tcp_buffer::prepare_write(struct iovec* iov) {
+prepare_t tcp_buffer::prepare_write() {
+  prepare_t prepare;
   const std::size_t available = w_available();
   if(write < read || available == 0) {
-    iov[0].iov_base = &buffer[write];
-    iov[0].iov_len = available;
-    return 1;
+    prepare.first.first[0].iov_base = &buffer[write];
+    prepare.first.first[0].iov_len = available;
+    prepare.first.second=1;
+    if (available==0)
+      prepare.second = false;
+    else
+      prepare.second = true;
+    return prepare;
   }
-  iov[0].iov_base = &buffer[write];
-  iov[0].iov_len = buffer.size() - write;
-  iov[1].iov_base = &buffer[0];
-  iov[1].iov_len = read;
-  return 2;
+  prepare.first.first[0].iov_base = &buffer[write];
+  prepare.first.first[0].iov_len = buffer.size() - write;
+  prepare.first.first[1].iov_base = &buffer[0];
+  prepare.first.first[1].iov_len = read;
+  prepare.first.second = 2;
+  prepare.second = true;
+  return prepare;
 }
 
 void tcp_buffer::commit_read(std::size_t bytes) {
