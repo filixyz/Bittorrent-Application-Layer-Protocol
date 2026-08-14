@@ -27,4 +27,5 @@ public:
   void commit_write(std::size_t);
   std::size_t r_available();
   std::size_t w_available();
+  void reset();
 };

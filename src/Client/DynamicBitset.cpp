@@ -1,4 +1,5 @@
 #include "DynamicBitset.h"
+#include <algorithm>
 #include <cstdint>
 #include <iostream>
 #include <bitset>
@@ -80,4 +81,8 @@ void DynamicBitset::reset(std::size_t index) {
   std::size_t field_index = index/64;
   std::size_t bit_index = index & 63;
   bitfield[field_index] &= ~(std::uint64_t(1)<<bit_index);
+}
+
+void DynamicBitset::reset_set() {
+  std::fill(bitfield.begin(), bitfield.end(), std::uint64_t{0});
 }

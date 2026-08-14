@@ -84,3 +84,9 @@ std::size_t tcp_buffer::w_available() {
   if(empty()) return buffer.size();
   return buffer.size() - size();
 }
+
+void tcp_buffer::reset() {
+  prev_action = R;
+  read = 0;
+  write = 0;
+}

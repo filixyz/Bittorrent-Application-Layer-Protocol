@@ -55,29 +55,46 @@ class PeerManager {
     ev::io socket_watcher;
     ev::timer timer_watcher;
     msghdr ephemereal_hdr{};
-    inline std::pair<ssize_t, bool> recv();
-    inline std::pair<ssize_t, bool> send();
+    std::pair<bool, bool> recv();
+    std::pair<bool, bool> send();
     PeerHandle(std::string, std::size_t);
+  private:
+    void connect();
+    void disconnect();
+    // returns: false if error is irrecovereable (disconnected/disconnection candidate)
+    // true if error recovereable eg EAGAIN/EWOULDBLOCK/EINTR (connected with issues handled/expected)
+    bool handle_errno(int);
+    friend PeerManager;
   };
   struct PeerConnection
   {
+    // non atomic members are only to be touched
+    // by currently owning thread.
     PeerHandle* peer {&dummypeer};
+    // active is only set false by TransferManager before handoff
+    // and it is only set true by PeerManager before handoff
+    bool active{false};
     std::atomic<bool> choking_them{true};
     std::atomic<bool> choked_by_them{true};
     std::atomic<bool> interested_in_them{false};
     std::atomic<bool> them_interested{false};
     std::atomic<std::size_t> down_rate{0};
     std::atomic<std::size_t> upld_rate{0};
-    void set_endpoint(PeerHandle&); // not implemented
-    bool is_dummy(); // not imeplemented
-    void endpoint_disconnected(); // not implemented
   private:
     static PeerHandle dummypeer;
+    void set_endpoint(PeerHandle&);
+    bool is_dummy();
+    void endpoint_disconnected();
+    friend PeerManager;
   };
 
-  // peer tools
-  bool parse_handshake(PeerHandle&);
-  bool send_handshake(PeerHandle&);
+  // returns (while acting accordingly)
+  // -1 if encountered malformed handshake
+  //  0 if incomplete handshake message or no handshake
+  //  1 if sucessful
+  int parse_handshake(PeerHandle&);
+  // return number of bytes buffered for send
+  int buffer_handshake(PeerHandle&);
 
   ev::dynamic_loop event_loop;
   ev::timer peer_pool_timer;
@@ -95,8 +112,8 @@ class PeerManager {
   std::unordered_map<std::string, PeerHandle> peer_handles{};
   std::size_t connected_peers_count{0};
   std::vector<PeerConnection> peer_connections{};
-  std::mutex peer_pool_mutex;
-  std::vector<PeerConnection*> connections_view{};
+  // std::mutex apl_mutex; // for active_peerlist
+  // std::vector<PeerConnection*> active_peers_list{};
 
   void ipv6_default_server_sockstore();
   void ipv4_default_server_sockstore();

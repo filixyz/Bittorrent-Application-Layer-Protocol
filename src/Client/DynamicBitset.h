@@ -21,5 +21,6 @@ public:
   bool test(std::size_t) const;
   void set(std::size_t);
   void reset(std::size_t);
+  void reset_set();
   void print();
 };

@@ -2,8 +2,8 @@
 #include "Constants.h"
 #include "DynamicBitset.h"
 #include "TorrentFile.h"
-#include <algorithm>
 #include <arpa/inet.h>
+#include <asm-generic/socket.h>
 #include <cassert>
 #include <cerrno>
 #include <cstring>
@@ -16,20 +16,31 @@
 #include <unistd.h>
 #include <utility>
 
-std::pair<ssize_t, bool> PeerManager::PeerHandle::recv() {
+std::pair<bool, bool> PeerManager::PeerHandle::recv() {
   auto [io_vec, io_possible] = recv_buffer.prepare_write();
   ephemereal_hdr.msg_iov = io_vec.first;
   ephemereal_hdr.msg_iovlen = io_vec.second;
   auto recv_return = recvmsg(socket, &ephemereal_hdr, 0);
-  return {recv_return, io_possible};
+  if (recv_return == 0) {
+    disconnect();
+    return {false, io_possible};
+  } else if (recv_return<0) {
+    return {handle_errno(errno), io_possible};
+  }
+  recv_buffer.commit_write(recv_return);
+  return {true, io_possible};
 }
 
-std::pair<ssize_t, bool> PeerManager::PeerHandle::send() {
+std::pair<bool, bool> PeerManager::PeerHandle::send() {
   auto [io_vec, io_possible] = send_buffer.prepare_read();
   ephemereal_hdr.msg_iov = io_vec.first;
   ephemereal_hdr.msg_iovlen = io_vec.second;
   auto send_return = sendmsg(socket, &ephemereal_hdr, MSG_NOSIGNAL); // No sigpipe.
-  return {send_return, io_possible};
+  if (send_return<0) {
+    return {handle_errno(errno), io_possible};
+  }
+  send_buffer.commit_read(send_return);
+  return {true, io_possible};
 }
 
 PeerManager::PeerHandle::PeerHandle(std::string a, std::size_t b): peer_id(a), bitfield(b) {
@@ -48,10 +59,16 @@ bool PeerManager::PeerConnection::is_dummy() {
 }
 
 void PeerManager::PeerConnection::endpoint_disconnected() {
-  peer            = &dummypeer;
   down_rate       = upld_rate           = 0;
-  choked_by_them  = choked_by_them      = true;
+  choked_by_them  = choking_them        = true;
   them_interested = interested_in_them  = false;
+  peer->bitfield.reset_set();
+  peer->recv_buffer.reset();
+  peer->send_buffer.reset();
+  peer->state = PeerHandle::DISCONNECTED;
+  peer = &dummypeer;
+  // transfer manager would have already set active flag to false before handoff.
+  // This is to aid it's algorithm in peer selection.
 }
 
 void PeerManager::ipv6_default_server_sockstore() {
@@ -70,10 +87,9 @@ void PeerManager::handle_socket_errno(int error) {
   if (error == EAFNOSUPPORT) {
     ipv4_default_server_sockstore();
     server.socket = socket(server.store.ss_family, server.flags, server.trspt_proto);
-    if (server.socket<0 && errno==EAFNOSUPPORT)
+    if (server.socket<0)
       throw Peer_Manager_SYS_Error{error};
-    else
-      server.ipv4_support=true;
+    server.ipv4_support=true;
     return;
   }
   if (error == ENOMEM) {
@@ -233,16 +249,18 @@ void PeerManager::peer_socket_callback(ev::io& sw, int event) {
   PeerManager& manager = *static_cast<PeerManager*>(ev_userdata(sw.loop.raw_loop));
   PeerHandle& peer = *static_cast<PeerHandle*>(sw.data);
   if (event & ev::READ) {
+    if (peer.state == PeerHandle::DISCOVERED) {
+    }
+
     if (peer.state == PeerHandle::C_HANDSHAKE || peer.state == PeerHandle::S_HANDSHAKE) {
-      auto [recv_return, pbuffer_full] = peer.recv();
-      if (recv_return<0) {
-        handle_peer_errno(errno, peer);
-        return;
-      }
-      peer.recv_buffer.commit_write(recv_return);
-      if ( manager.parse_handshake(peer) ) {
-        if (peer.state == PeerHandle::S_HANDSHAKE)
-          manager.send_handshake(peer);
+      auto [recvd, pbuffer_full] = peer.recv();
+      if (!recvd) return;
+      if ( manager.parse_handshake(peer) == 1 ) {
+        if (peer.state == PeerHandle::S_HANDSHAKE) {
+          manager.buffer_handshake(peer);
+          auto [sent, pbuffer_empty] = peer.send();
+          if (!sent) return;
+        }
         peer.state = PeerHandle::CONNECTED;
         manager.add_connected_peer(peer);
         return;
@@ -252,15 +270,31 @@ void PeerManager::peer_socket_callback(ev::io& sw, int event) {
   }
 
   if (event & ev::WRITE) {
-    // handle partial handshake sends
     if (peer.state == PeerHandle::C_HANDSHAKE || peer.state == PeerHandle::S_HANDSHAKE) {
-      auto [send_return, pbuffer_empty] = peer.send();
-      if (send_return<0) {
-        handle_peer_errno(errno, peer);
+      // handle partial handshake sends
+      auto [sent, pbuffer_empty] = peer.send();
+      if (!sent) return;
+      return;
+    }
+
+    if (peer.state == PeerHandle::DISCOVERED) {
+      // This means peer was just discovered and the client of peermanager
+      // just initiated a non block connect, so we should be expecting a
+      // some update on the socket regarding connection establishment.
+      int error;
+      socklen_t err_var_len = sizeof error;
+      int sock_opt_return = getsockopt(peer.socket, SOL_SOCKET, SO_ERROR, &error, &err_var_len);
+      if (sock_opt_return<0)
+        ; // DANGEROUS: handle socket option retrieval failure later
+      else if (error != 0) {
+        peer.handle_errno(error);
         return;
       }
-      peer.send_buffer.commit_read(send_return);
-      return;
+      // if function makes it here, peer has connected sucessfully.
+      manager.buffer_handshake(peer);
+      auto [sent, pbuffer_empty] = peer.send();
+      if (!sent) return;
+      peer.state = PeerHandle::C_HANDSHAKE;
     }
   }
 
@@ -273,6 +307,7 @@ void PeerManager::add_connected_peer(PeerHandle& peer) {
   for (auto& connection : peer_connections) {
     if (connection.is_dummy()) {
       connection.set_endpoint(peer);
+      connection.active = true;
       ++connected_peers_count;
       return;
     }
