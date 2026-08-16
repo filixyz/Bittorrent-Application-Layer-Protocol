@@ -28,16 +28,13 @@ void PeerConnectionManager::ipv4_default_server_sockstore() {
 }
 
 void PeerConnectionManager::initialize_manager_watchers() {
-  // init server socket watcher
   server_socket_watcher.set(event_loop);
   server_socket_watcher.set(server.socket, ev::READ);
   server_socket_watcher.set<PeerConnectionManager, &PeerConnectionManager::server_socket_callback>(this);
-  // init queue consumer watcher
-  queue_consumer_watcher.set(event_loop);
-  queue_consumer_watcher.set<PeerConnectionManager, &PeerConnectionManager::discovered_peer_callback>(this);
-  // init peer_update_watcher
-  peer_update_watcher.set(event_loop);
-  peer_update_watcher.set<PeerConnectionManager, &PeerConnectionManager::peer_update_callback>(this);
+  discovered.consumer.set(event_loop);
+  discovered.consumer.set<PeerConnectionManager, &PeerConnectionManager::establish_connections>(this);
+  disconnects.consumer.set(event_loop);
+  disconnects.consumer.set<PeerConnectionManager, &PeerConnectionManager::reastablish_connections>(this);
 }
 
 
@@ -87,8 +84,8 @@ int PeerConnectionManager::initialize_libev() {
   return ev::recommended_backends();
 }
 
-PeerConnectionManager::PeerConnectionManager(TorrentFile& torrent_p, pdisconnection_queue& d, pconnection_queue& c)
-  :event_loop(initialize_libev()), torrent(torrent_p), connects(c), disconnects(d) {
+PeerConnectionManager::PeerConnectionManager(TorrentFile& a, pconnection_queue& b, pdisconnection_queue& c ,pdiscovery_queue& d)
+  :event_loop(initialize_libev()), torrent(a), connects(b), disconnects(c), discovered(d) {
   ev_set_userdata(event_loop.raw_loop, this);
   initialize_server_socket();
   initialize_manager_watchers();
@@ -132,7 +129,6 @@ bool PeerConnectionManager::accept_peer_connection() {
   // tries to emplace new peer or updates peer if already disocvered before
   auto [peer_ref, inserted] = peer_handles.try_emplace(peer_id, peer_id, torrent.get_piece_length());
   if (!inserted) {
-    // This is a reconnect
     peer_ref->second.generation++;
   }
   auto& new_or_found_peer = peer_ref->second;
@@ -145,12 +141,13 @@ bool PeerConnectionManager::accept_peer_connection() {
   return true;
 }
 
-void PeerConnectionManager::acquire_peer(PeerConnection& peer) {
-  peer.socket_watcher.set(peer.socket, ev::READ);
-  peer.socket_watcher.set<&PeerConnectionManager::peer_socket_callback>();
-  peer.socket_watcher.data = &peer;
-  peer.socket_watcher.set(event_loop);
-  peer.socket_watcher.start();
+void PeerConnectionManager::initiate_new_connection() {
+  if (discovered.queue.empty() || connected_peers_count>=bprotocol::constants::healthy_peer_count)
+    return;
+  auto peer = std::move(discovered.queue.front());
+  discovered.queue.pop();
+//  if (peer_handles.find(peer))
+
 }
 
 void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
@@ -170,10 +167,14 @@ void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
           if (!sent) return;
         }
         peer.state = PeerConnection::CONNECTED;
-        manager.add_connected_peer(peer);
+        manager.dispatch_connect(peer);
+        manager.initiate_new_connection();
         return;
       }
       return;
+    }
+
+    if (peer.state == PeerConnection::DISCONNECTED) {
     }
   }
 
@@ -204,6 +205,10 @@ void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
       if (!sent) return;
       peer.state = PeerConnection::C_HANDSHAKE;
     }
+
+    if (peer.state == PeerConnection::DISCONNECTED) {
+
+    }
   }
 
   if (event & ev::ERROR) {
@@ -211,8 +216,33 @@ void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
   }
 }
 
-void PeerConnectionManager::add_connected_peer(PeerConnection& peer) {
+void PeerConnectionManager::handle_disconnect(PeerConnection& peer) {
+  // acquire_peer(peer);
+  // add to recconnection container
+  --connected_peers_count;
+}
+
+void PeerConnectionManager::acquire_peer(PeerConnection& peer) {
+  peer.socket_watcher.set(peer.socket, ev::READ);
+  peer.socket_watcher.set<&PeerConnectionManager::peer_socket_callback>();
+  peer.socket_watcher.data = &peer;
+  peer.socket_watcher.set(event_loop);
+  peer.socket_watcher.start();
+}
+
+void PeerConnectionManager::release_peer(PeerConnection& peer) {
+  peer.socket_watcher.stop();
+  peer.timer_watcher.stop();
+}
+
+void PeerConnectionManager::dispatch_connect(PeerConnection& peer) {
   // send connected peer to transfer manager for management here.
+  release_peer(peer);
+  ++peer.generation;
+  ++connected_peers_count;
+  connect_update new_connect { .peer=&peer, .id=peer.id, .generation=peer.generation };
+  connects.queue.push(std::move(new_connect));
+  connects.consumer.send();
 }
 
 void PeerConnectionManager::server_socket_callback(ev::io& server, int event){

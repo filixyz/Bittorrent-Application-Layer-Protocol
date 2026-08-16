@@ -8,11 +8,10 @@
 
 // For interacting with peer manager
 struct peer_address {
-  sockaddr_storage sock_store;
-  socklen_t sock_size;
+  std::array<std::byte, 18> iport;
+  socklen_t ip_size;
 };
 
 // For interacting with file_manager
-struct file_manager_update {
-
+struct verified_piece {
 };

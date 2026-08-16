@@ -26,16 +26,17 @@ class PeerConnectionManager {
     int port{0};
   };
 
+  // tells if peers from discovered queue are still actively
+  // being tried for connection establishment
+  // switch it turned on when discovered populated
+  // and turned off when discovered is empty
+  bool consuming {false};
   ev::dynamic_loop event_loop;
   ev::io server_socket_watcher;
-  ev::async queue_consumer_watcher;
-  ev::async peer_update_watcher;
-
   const TorrentFile& torrent;
   pconnection_queue& connects;
-  pdisconnection_queue disconnects;
-
-  bool ppool_cascade_draining{false};
+  pdisconnection_queue& disconnects;
+  pdiscovery_queue& discovered;
   server_socket_t server;
   std::unordered_map<std::string, PeerConnection> peer_handles{};
   std::size_t connected_peers_count{0};
@@ -46,31 +47,30 @@ class PeerConnectionManager {
   void handle_socket_errno(int);
   void handle_ip_errno(int);
   void handle_bind_errno(int);
-
-  int  initialize_libev();
-  void initialize_server_socket();
-  void initialize_manager_watchers();
-  void initialize_peer_pool();
-
-  void acquire_peer(PeerConnection&);
-  void release_peer(PeerConnection&);
-
-  int parse_handshake(PeerConnection&);
-  int buffer_handshake(PeerConnection&);
-
-  void add_connected_peer(PeerConnection&);
   bool handle_server_errno(int);
   bool accept_peer_connection();
   void server_socket_callback(ev::io&, int);
 
-  void static handle_peer_errno(int, PeerConnection&);
-  void static peer_socket_callback(ev::io&, int);
+  int  initialize_libev();
+  void initialize_server_socket();
+  void initialize_manager_watchers();
 
-  void peer_update_callback();
-  void discovered_peer_callback();
+  void acquire_peer(PeerConnection&);
+  void release_peer(PeerConnection&);
+  int  parse_handshake(PeerConnection&);
+  int  buffer_handshake(PeerConnection&);
+  void dispatch_connect(PeerConnection&);
+  void handle_disconnect(PeerConnection&);
+
+
+  void static peer_socket_callback(ev::io&, int);
+  // actively initiates connection for disconnected peers and discovered peer addresses
+  void establish_connections();
+  void reastablish_connections();
+  inline void initiate_new_connection();
 
 public:
-  PeerConnectionManager(TorrentFile&, pdisconnection_queue&, pconnection_queue&);
+  PeerConnectionManager(TorrentFile&, pconnection_queue&, pdisconnection_queue&, pdiscovery_queue&);
   void run_manager();
   int get_listening_port();
 };

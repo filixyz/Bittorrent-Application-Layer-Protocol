@@ -76,7 +76,7 @@ private:
 };
 
 struct connect_update {
-  PeerConnection& peer;
+  PeerConnection* peer;
   std::size_t id;
   std::size_t generation;
 };
@@ -85,6 +85,12 @@ struct disconnect_update {
   PeerConnection& peer;
 };
 
-using pconnection_queue = std::queue<connect_update>;
-using pdisconnection_queue = std::queue<disconnect_update>;
-using pdiscovery_queue = std::queue<peer_address>;
+template<class T>
+struct consumer_queue {
+  std::queue<T> queue;
+  ev::async consumer;
+};
+
+using pconnection_queue = consumer_queue<connect_update>;
+using pdisconnection_queue = consumer_queue<disconnect_update>;
+using pdiscovery_queue = consumer_queue<peer_address>;
