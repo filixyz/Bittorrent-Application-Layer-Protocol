@@ -10,22 +10,11 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <unordered_map>
+#include "ThreadMessageTypes.h"
 #include "TorrentFile.h"
 #include "PeerManagerTypes.h"
 
 class PeerConnectionManager {
-  struct server_socket_t
-  {
-    int socket{};
-    sockaddr_storage store{};
-    socklen_t store_len{};
-    int flags {SOCK_STREAM|SOCK_NONBLOCK};
-    int trspt_proto{IPPROTO_TCP};
-    int off_ipv6only{0};
-    bool ipv4_support{false};
-    int port{0};
-  };
-
   // tells if peers from discovered queue are still actively
   // being tried for connection establishment
   // switch it turned on when discovered populated
@@ -36,9 +25,11 @@ class PeerConnectionManager {
   const TorrentFile& torrent;
   pconnection_queue& connects;
   pdisconnection_queue& disconnects;
-  pdiscovery_queue& discovered;
-  server_socket_t server;
-  std::unordered_map<std::string, PeerConnection> peer_handles{};
+  pdiscovery_queue_ipv4& discovered;
+  tcp_server_context server;
+  std::unordered_map<ipv4_peer_address, PeerConnection, peer_manager_hashers> ipv4_peers{};
+  std::unordered_map<ipv6_peer_address, PeerConnection, peer_manager_hashers> ipv6_peers{};
+  std::unordered_map<peer_id_t, PeerConnection*, peer_manager_hashers> peer_ids; // for deduplication after handshake.
   std::size_t connected_peers_count{0};
 
   void ipv6_default_server_sockstore();
@@ -62,15 +53,15 @@ class PeerConnectionManager {
   void dispatch_connect(PeerConnection&);
   void handle_disconnect(PeerConnection&);
 
-
   void static peer_socket_callback(ev::io&, int);
   // actively initiates connection for disconnected peers and discovered peer addresses
   void establish_connections();
   void reastablish_connections();
   inline void initiate_new_connection();
+  inline void initiate_connection();
 
 public:
-  PeerConnectionManager(TorrentFile&, pconnection_queue&, pdisconnection_queue&, pdiscovery_queue&);
+  PeerConnectionManager(TorrentFile&, pconnection_queue&, pdisconnection_queue&, pdiscovery_queue_ipv4&);
   void run_manager();
   int get_listening_port();
 };

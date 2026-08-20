@@ -84,7 +84,7 @@ int PeerConnectionManager::initialize_libev() {
   return ev::recommended_backends();
 }
 
-PeerConnectionManager::PeerConnectionManager(TorrentFile& a, pconnection_queue& b, pdisconnection_queue& c ,pdiscovery_queue& d)
+PeerConnectionManager::PeerConnectionManager(TorrentFile& a, pconnection_queue& b, pdisconnection_queue& c ,pdiscovery_queue_ipv4& d)
   :event_loop(initialize_libev()), torrent(a), connects(b), disconnects(c), discovered(d) {
   ev_set_userdata(event_loop.raw_loop, this);
   initialize_server_socket();
@@ -122,22 +122,23 @@ bool PeerConnectionManager::accept_peer_connection() {
   else {
     assert(false && "Unexpected Address Family: accept_peer_connection");
   }
+
   char peeripvsbuf [INET6_ADDRSTRLEN];
   inet_ntop(peer_family, peer_addr_src, peeripvsbuf, sizeof peeripvsbuf);
   std::string peer_id = std::string{peeripvsbuf} + ':' + std::to_string(peer_port);
 
   // tries to emplace new peer or updates peer if already disocvered before
-  auto [peer_ref, inserted] = peer_handles.try_emplace(peer_id, peer_id, torrent.get_piece_length());
+  auto [peer_ref, inserted] = ipv4_peers.try_emplace({});
   if (!inserted) {
-    peer_ref->second.generation++;
+   // peer_ref->second.gene ration++;
   }
-  auto& new_or_found_peer = peer_ref->second;
-  new_or_found_peer.socket = accept_return;
-  new_or_found_peer.state=PeerConnection::S_HANDSHAKE;
-  new_or_found_peer.id = peer_handles.size();
-  memcpy(&new_or_found_peer.store, &new_store, server.store_len);
-  acquire_peer(new_or_found_peer);
-
+  auto& peer = peer_ref->second;
+  peer.tcp.socket = accept_return;
+  peer.state = pstate::S_HANDSHAKE;
+  peer.source = psource::tcp_server;
+  peer.id = new_peer_id();
+  memcpy(&peer.store, &new_store, server.store_len);
+  acquire_peer(peer);
   return true;
 }
 
@@ -154,19 +155,19 @@ void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
   PeerConnectionManager& manager = *static_cast<PeerConnectionManager*>(ev_userdata(sw.loop.raw_loop));
   PeerConnection& peer = *static_cast<PeerConnection*>(sw.data);
   if (event & ev::READ) {
-    if (peer.state == PeerConnection::DISCOVERED) {
+    if (peer.state == pstate::DISCOVERED) {
     }
 
-    if (peer.state == PeerConnection::C_HANDSHAKE || peer.state == PeerConnection::S_HANDSHAKE) {
+    if (peer.state == pstate::C_HANDSHAKE || peer.state == pstate::S_HANDSHAKE) {
       auto [recvd, pbuffer_full] = peer.recv();
       if (!recvd) return;
       if ( manager.parse_handshake(peer) == 1 ) {
-        if (peer.state == PeerConnection::S_HANDSHAKE) {
+        if (peer.state == pstate::S_HANDSHAKE) {
           manager.buffer_handshake(peer);
           auto [sent, pbuffer_empty] = peer.send();
           if (!sent) return;
         }
-        peer.state = PeerConnection::CONNECTED;
+        peer.state = pstate::CONNECTED;
         manager.dispatch_connect(peer);
         manager.initiate_new_connection();
         return;
@@ -174,39 +175,39 @@ void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
       return;
     }
 
-    if (peer.state == PeerConnection::DISCONNECTED) {
+    if (peer.state == pstate::DISCONNECTED) {
     }
   }
 
   if (event & ev::WRITE) {
-    if (peer.state == PeerConnection::C_HANDSHAKE || peer.state == PeerConnection::S_HANDSHAKE) {
+    if (peer.state == pstate::C_HANDSHAKE || peer.state == pstate::S_HANDSHAKE) {
       // handle partial handshake sends
       auto [sent, pbuffer_empty] = peer.send();
       if (!sent) return;
       return;
     }
 
-    if (peer.state == PeerConnection::DISCOVERED) {
+    if (peer.state == pstate::DISCOVERED) {
       // This means peer was just discovered and the client of peermanager
       // just initiated a non block connect, so we should be expecting a
       // some update on the socket regarding connection establishment.
       int error;
       socklen_t err_var_len = sizeof error;
-      int sock_opt_return = getsockopt(peer.socket, SOL_SOCKET, SO_ERROR, &error, &err_var_len);
+      int sock_opt_return = getsockopt(peer.tcp.socket, SOL_SOCKET, SO_ERROR, &error, &err_var_len);
       if (sock_opt_return<0)
         ; // DANGEROUS: handle socket option retrieval failure later
       else if (error != 0) {
-        peer.handle_errno(error);
+        peer.tcp.handle_errno(error);
         return;
       }
       // if function makes it here, peer has connected sucessfully.
       manager.buffer_handshake(peer);
       auto [sent, pbuffer_empty] = peer.send();
       if (!sent) return;
-      peer.state = PeerConnection::C_HANDSHAKE;
+      peer.state = pstate::C_HANDSHAKE;
     }
 
-    if (peer.state == PeerConnection::DISCONNECTED) {
+    if (peer.state == pstate::DISCONNECTED) {
 
     }
   }
@@ -223,16 +224,16 @@ void PeerConnectionManager::handle_disconnect(PeerConnection& peer) {
 }
 
 void PeerConnectionManager::acquire_peer(PeerConnection& peer) {
-  peer.socket_watcher.set(peer.socket, ev::READ);
-  peer.socket_watcher.set<&PeerConnectionManager::peer_socket_callback>();
-  peer.socket_watcher.data = &peer;
-  peer.socket_watcher.set(event_loop);
-  peer.socket_watcher.start();
+  peer.listener.for_sock.set(peer.tcp.socket, ev::READ);
+  peer.listener.for_sock.set<&PeerConnectionManager::peer_socket_callback>();
+  peer.listener.for_sock.data = &peer;
+  peer.listener.for_sock.set(event_loop);
+  peer.listener.for_sock.start();
 }
 
 void PeerConnectionManager::release_peer(PeerConnection& peer) {
-  peer.socket_watcher.stop();
-  peer.timer_watcher.stop();
+  peer.listener.for_sock.stop();
+  peer.listener.for_timer.stop();
 }
 
 void PeerConnectionManager::dispatch_connect(PeerConnection& peer) {
