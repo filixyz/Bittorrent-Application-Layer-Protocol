@@ -20,6 +20,7 @@ class PeerConnectionManager {
   // switch it turned on when discovered populated
   // and turned off when discovered is empty
   bool consuming {false};
+  peer_id_gen get_id{};
   ev::dynamic_loop event_loop;
   ev::io server_socket_watcher;
   const TorrentFile& torrent;

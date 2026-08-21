@@ -42,8 +42,6 @@ struct transact {
   bool bufferred; // if true IO happened with application layer buffer, otherwise false.
 };
 
-using peer_id_t = std::array<std::byte, 20>;
-
 struct tcp_server_context
 {
   int socket{};
@@ -57,20 +55,55 @@ struct tcp_server_context
 };
 
 struct peer_nonblock_tcp {
-  int socket;
-  int perrno;
+  int socket{-1};
+  int perrno{-1};
   msghdr ephemereal_hdr{};
-  transact send(hanshake_buffer&);
-  transact recv(hanshake_buffer&);
-  transact recv(session_buffer&);
-  transact send(session_buffer&);
+
+  template<std::size_t N>
+  transact send(tcp_buffer<N>& buffer) {
+    prepare_t prepare = buffer.prepare_read();
+    ephemereal_hdr.msg_iov = prepare.iovec.first;
+    ephemereal_hdr.msg_iovlen = prepare.iovec.second;
+
+    ssize_t send_return; do {
+      send_return = sendmsg(socket, &ephemereal_hdr, MSG_NOSIGNAL);
+    } while (send_return<0 && errno == EINTR);
+
+    if (send_return<0)
+      return {handle_send_perrno(errno), prepare.buffered};
+    perrno = -1;
+    buffer.commit_read(send_return);
+    return {true, prepare.buffered};
+  }
+
+  template<std::size_t N>
+  transact recv(tcp_buffer<N>& buffer) {
+    prepare_t prepare = buffer.prepare_write();
+    ephemereal_hdr.msg_iov = prepare.iovec.first;
+    ephemereal_hdr.msg_iovlen = prepare.iovec.second;
+
+    ssize_t recv_return; do {
+      recv_return = recvmsg(socket, &ephemereal_hdr, 0);
+    } while (recv_return<0 && errno == EINTR);
+
+    if (recv_return == 0) {
+      perrno = PEER_SHUTDOWN;
+      return {false, prepare.buffered};
+    } else if (recv_return<0) {
+      return {handle_recv_perrno(errno), prepare.buffered};
+    }
+    perrno = -1;
+    buffer.commit_write(recv_return);
+    return {true, prepare.buffered};
+  }
+
 private:
-  bool handle_errno(int);
-  bool connect();
-  bool close();
-  bool disconnect();
-  ssize_t recv(prepare_t, transact&);
-  ssize_t send(prepare_t, transact&);
+  bool handle_send_perrno(int);
+  bool handle_recv_perrno(int);
+  bool handle_connect_perrno(int);
+  bool pconnect(const sockaddr*);
+  void pclose();
+  void disconnect();
   friend PeerConnectionManager;
 };
 
@@ -81,6 +114,7 @@ struct peer_watchers {
 
 enum class pstate: std::uint8_t {DISCOVERED, S_HANDSHAKE, C_HANDSHAKE, CONNECTED, DISCONNECTED, DEAD};
 enum class psource: std::uint8_t {null, tracker, tcp_server};
+using peer_id_t = std::array<std::byte, 20>;
 
 struct PeerConnection {
   peer_nonblock_tcp tcp;
@@ -121,19 +155,20 @@ private:
 };
 
 struct connect_update {
-  PeerConnection* peer;
+  const PeerConnection* peer;
   int socket;
   std::size_t id;
   std::size_t generation;
 };
 
 struct disconnect_update {
-  PeerConnection* peer;
+  const PeerConnection* peer;
   int perrno;
 };
 
 template<class T>
 struct consumer_queue {
+  std::mutex mutex;
   std::queue<T> queue;
   ev::async consumer;
 };
@@ -158,7 +193,3 @@ struct peer_id_gen {
   std::size_t id{0};
   std::size_t operator()() { return id++; }
 };
-
-// declaration migh tbe errornewous
-// might need its own .cpp
-static peer_id_gen new_peer_id;
