@@ -14,7 +14,6 @@
 #include "PeerConnectionManager.h"
 #include "PeerManagerTypes.h"
 
-
 void PeerConnectionManager::ipv6_default_server_sockstore() {
   std::memset(&server.store, 0, sizeof(sockaddr_storage));
   server.store.ss_family = AF_INET6;
@@ -136,7 +135,7 @@ bool PeerConnectionManager::accept_peer_connection() {
   peer.tcp.socket = accept_return;
   peer.state = pstate::S_HANDSHAKE;
   peer.source = psource::tcp_server;
-  peer.id = new_peer_id();
+  peer.id = get_id();
   memcpy(&peer.store, &new_store, server.store_len);
   acquire_peer(peer);
   return true;
@@ -197,7 +196,7 @@ void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
       if (sock_opt_return<0)
         ; // DANGEROUS: handle socket option retrieval failure later
       else if (error != 0) {
-        peer.tcp.handle_errno(error);
+        // peer.tcp.handle_errno(error);
         return;
       }
       // if function makes it here, peer has connected sucessfully.
