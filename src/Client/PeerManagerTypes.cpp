@@ -1,4 +1,4 @@
-#include "PeerManagerTypes.h"
+#include "PeerManagerTypes.hpp"
 #include <cerrno>
 #include <netinet/in.h>
 #include <sys/socket.h>

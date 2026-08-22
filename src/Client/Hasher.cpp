@@ -1,4 +1,4 @@
-#include "Hasher.h"
+#include "Hasher.hpp"
 #include <crypto++/sha.h>
 #include <cstddef>
 #include <sstream>

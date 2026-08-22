@@ -1,9 +1,8 @@
 #pragma once
-#include "TransferManager.h"
-#include "FileManager.h"
-#include "PeerManager.h"
-#include "TorrentFile.h"
-#include "TrackerManager.h"
+#include "FileManager.hpp"
+#include "PeerManager.hpp"
+#include "TorrentFile.hpp"
+#include "TrackerManager.hpp"
 
 class BTProtocol {
 public:

@@ -3,28 +3,22 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <iterator>
 #include <mutex>
 #include <queue>
 #include <sys/types.h>
 #include <unistd.h>
 #include <utility>
-#include <vector>
-#include <string>
 #include <bitset>
 #include <ev++.h>
-#include <memory>
-#include "DynamicBitset.h"
-#include "TCPRingBuffer.h"
-#include "Randomer.h"
-#include "../Errorhandlers/BittorentErrors.h"
-#include "ThreadMessageTypes.h"
+#include "Constants.hpp"
+#include "DynamicBitset.hpp"
+#include "TCPRingBuffer.hpp"
+#include "ThreadMessageTypes.hpp"
 #define XXH_INLINE_ALL
 #include "xxhash.h"
 //Unix Networking Headers here
 #include <sys/socket.h>
 #include <fcntl.h>
-#include <signal.h>
 #include <netinet/in.h>
 #include <cerrno>
 #include <arpa/inet.h>
@@ -166,11 +160,12 @@ struct disconnect_update {
   int perrno;
 };
 
+#include "spsc_queue.hpp"
+
 template<class T>
 struct consumer_queue {
-  std::mutex mutex;
-  std::queue<T> queue;
-  ev::async consumer;
+  spsc_queue<T, bprotocol::constants::healthy_peer_count> queue;
+  ev::async notification;
 };
 
 using pconnection_queue = consumer_queue<connect_update>;

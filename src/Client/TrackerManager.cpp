@@ -1,7 +1,7 @@
-#include "TrackerManager.h"
-#include "Constants.h"
-#include "HTTPHandler.h"
-#include "PeerManager.h"
+#include "TrackerManager.hpp"
+#include "Constants.hpp"
+#include "HTTPHandler.hpp"
+#include "PeerManager.hpp"
 #include <array>
 #include <cassert>
 #include <cstdlib>

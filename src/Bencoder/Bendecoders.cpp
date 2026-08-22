@@ -1,5 +1,5 @@
-#include "../Errorhandlers/BittorentErrors.h"
-#include "Bencode.h"
+#include "../Errorhandlers/BittorentErrors.hpp"
+#include "Bencode.hpp"
 #include <cctype>
 #include <cwctype>
 #include <ios>

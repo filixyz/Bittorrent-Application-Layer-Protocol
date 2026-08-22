@@ -1,5 +1,5 @@
-#include "TrackerManager.h"
-#include "../Bencoder/Bencode.h"
+#include "TrackerManager.hpp"
+#include "../Bencoder/Bencode.hpp"
 #include <sstream>
 #include <string>
 

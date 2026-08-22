@@ -1,6 +1,6 @@
 #ifndef TRANSFER_MAM
 #define TRANSFER_MAN
-#include "PeerManagerTypes.h"
+#include "PeerManagerTypes.hpp"
 #include <ev++.h>
 
 class PeerTransferManager {

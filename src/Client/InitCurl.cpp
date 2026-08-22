@@ -1,4 +1,4 @@
-#include "InitCurl.h"
+#include "InitCurl.hpp"
 #include <cstring>
 #include <curl/curl.h>
 

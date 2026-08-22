@@ -1,4 +1,4 @@
-#include "BittorentErrors.h"
+#include "BittorentErrors.hpp"
 #include <cstring>
 #include <iostream>
 #include <stdexcept>

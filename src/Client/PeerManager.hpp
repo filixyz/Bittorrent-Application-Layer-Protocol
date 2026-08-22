@@ -1,13 +1,13 @@
 #pragma once
-#include "PeerManagerTypes.h"
-#include "TorrentFile.h"
-#include "PeerTransferManager.h"
-#include "PeerConnectionManager.h"
+#include "PeerManagerTypes.hpp"
+#include "TorrentFile.hpp"
+#include "PeerTransferManager.hpp"
+#include "PeerConnectionManager.hpp"
 #include <queue>
 
 class PeerManager {
   bool seeding{false};
-  //TorrentFile& torrent;
+  TorrentFile& torrent;
   pdisconnection_queue discovered;
   pconnection_queue connects;
   pdisconnection_queue disconnets;

@@ -1,11 +1,6 @@
 #pragma once
-#include <cstddef>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <utility>
-#include <bitset>
-#include "DynamicBitset.h"
 
+#include <array>
 // For interacting with peer manager
 struct ipv4_peer_address {
   std::array<std::byte, 6> iport{};
@@ -15,7 +10,6 @@ struct ipv6_peer_address {
   std::array<std::byte, 18> iport{};
   bool operator==(const ipv6_peer_address&) const = default;
 };
-
 // For interacting with file_manager
 struct verified_piece {
 };

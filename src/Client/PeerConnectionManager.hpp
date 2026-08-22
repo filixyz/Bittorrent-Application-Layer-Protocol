@@ -10,9 +10,9 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <unordered_map>
-#include "ThreadMessageTypes.h"
-#include "TorrentFile.h"
-#include "PeerManagerTypes.h"
+#include "ThreadMessageTypes.hpp"
+#include "TorrentFile.hpp"
+#include "PeerManagerTypes.hpp"
 
 class PeerConnectionManager {
   // tells if peers from discovered queue are still actively

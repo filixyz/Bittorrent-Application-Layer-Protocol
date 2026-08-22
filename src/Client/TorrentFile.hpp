@@ -1,10 +1,10 @@
 #ifndef TORRENT_FILE
 #define TORRENT_FILE
 
-#include "../Bencoder/Bencode.h"
+#include "../Bencoder/Bencode.hpp"
 #include <cstdint>
 #include <filesystem>
-#include "Hasher.h"
+#include "Hasher.hpp"
 #include <span>
 
 class TorrentFile {

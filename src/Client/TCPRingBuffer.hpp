@@ -1,5 +1,5 @@
 #pragma once
-#include "Constants.h"
+#include "Constants.hpp"
 #include <array>
 #include <cstdint>
 #include <sys/uio.h>
@@ -11,10 +11,8 @@ struct prepare_t {
   bool buffered;
 };
 
-template <std::size_t N>
-class tcp_buffer {
+template <std::size_t N> class tcp_buffer {
   enum ost { R, W };
-
   ost prev_action = R;
   std::size_t read{0}, write{0};
   std::array<std::uint8_t, (std::uint64_t(1)<<N ) > buffer;
@@ -34,29 +32,23 @@ public:
   void reset();
 };
 
-
-template <std::size_t N>
-std::size_t tcp_buffer<N>::mask(std::size_t idx) {
+template <std::size_t N> std::size_t tcp_buffer<N>::mask(std::size_t idx) {
   return  idx & (buffer.size()-1);
 }
 
-template <std::size_t N>
-bool tcp_buffer<N>::empty() {
+template <std::size_t N> bool tcp_buffer<N>::empty() {
   return prev_action == R && read == write;
 }
 
-template <std::size_t N>
-bool tcp_buffer<N>::full() {
+template <std::size_t N> bool tcp_buffer<N>::full() {
   return prev_action == W && read == write;
 }
 
-template <std::size_t N>
-std::size_t tcp_buffer<N>::size(){
+template <std::size_t N> std::size_t tcp_buffer<N>::size(){
   return write>read ? write-read : buffer.size()-read+write;
 }
 
-template <std::size_t N>
-prepare_t tcp_buffer<N>::prepare_read() {
+template <std::size_t N> prepare_t tcp_buffer<N>::prepare_read() {
   prepare_t prepare;
   const std::size_t available = r_available();
   if(read < write || available == 0) {
@@ -78,8 +70,7 @@ prepare_t tcp_buffer<N>::prepare_read() {
   return prepare;
 }
 
-template <std::size_t N>
-prepare_t tcp_buffer<N>::prepare_write() {
+template <std::size_t N> prepare_t tcp_buffer<N>::prepare_write() {
   prepare_t prepare;
   const std::size_t available = w_available();
   if(write < read || available == 0) {
@@ -101,41 +92,33 @@ prepare_t tcp_buffer<N>::prepare_write() {
   return prepare;
 }
 
-template <std::size_t N>
-void tcp_buffer<N>::commit_read(std::size_t bytes) {
+template <std::size_t N> void tcp_buffer<N>::commit_read(std::size_t bytes) {
   read = mask(read+bytes);
   prev_action=R;
 }
 
-template <std::size_t N>
-void tcp_buffer<N>::commit_write(std::size_t bytes) {
+template <std::size_t N> void tcp_buffer<N>::commit_write(std::size_t bytes) {
   write = mask(write+bytes);
   prev_action=W;
 }
 
-
-template <std::size_t N>
-std::size_t tcp_buffer<N>::r_available() {
+template <std::size_t N> std::size_t tcp_buffer<N>::r_available() {
   if(empty()) return 0;
   if(full()) return buffer.size();
   return size();
 }
 
-
-template <std::size_t N>
-std::size_t tcp_buffer<N>::w_available() {
+template <std::size_t N> std::size_t tcp_buffer<N>::w_available() {
   if(full()) return 0;
   if(empty()) return buffer.size();
   return buffer.size() - size();
 }
 
-template <std::size_t N>
-void tcp_buffer<N>::reset() {
+template <std::size_t N> void tcp_buffer<N>::reset() {
   prev_action = R;
   read = 0;
   write = 0;
 }
-
 
 using hanshake_buffer = tcp_buffer<bprotocol::constants::hanshake_bufexp>;
 using session_buffer = tcp_buffer<bprotocol::constants::tcp_bufexp>;

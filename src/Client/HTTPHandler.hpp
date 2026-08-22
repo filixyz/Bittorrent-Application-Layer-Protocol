@@ -6,9 +6,6 @@
 #include <string>
 #include <sys/epoll.h>
 #include <sys/timerfd.h>
-#include <system_error>
-#include "Constants.h"
-#include <functional>
 #include <ev++.h>
 
 class HTTPHandler {

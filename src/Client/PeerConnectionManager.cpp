@@ -1,4 +1,4 @@
-#include "Constants.h"
+#include "Constants.hpp"
 #include <arpa/inet.h>
 #include <asm-generic/socket.h>
 #include <cassert>
@@ -11,8 +11,8 @@
 #include <string>
 #include <sys/socket.h>
 #include <unistd.h>
-#include "PeerConnectionManager.h"
-#include "PeerManagerTypes.h"
+#include "PeerConnectionManager.hpp"
+#include "PeerManagerTypes.hpp"
 
 void PeerConnectionManager::ipv6_default_server_sockstore() {
   std::memset(&server.store, 0, sizeof(sockaddr_storage));

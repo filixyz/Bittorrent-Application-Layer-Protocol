@@ -1,5 +1,5 @@
-#include "TorrentFile.h"
-#include "../Errorhandlers/BittorentErrors.h"
+#include "TorrentFile.hpp"
+#include "../Errorhandlers/BittorentErrors.hpp"
 #include <cstdint>
 #include <fstream>
 #include <crypto++/sha.h>

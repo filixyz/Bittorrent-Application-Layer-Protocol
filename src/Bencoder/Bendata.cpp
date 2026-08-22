@@ -1,4 +1,4 @@
-#include "Bencode.h"
+#include "Bencode.hpp"
 
 Bendata::Bendata(int number) : actual_value{number}, _t{BEN_NUM_T} {}
 Bendata::Bendata(std::string string) : actual_value{string}, _t{BEN_STR_T} {}

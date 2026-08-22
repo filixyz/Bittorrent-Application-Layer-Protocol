@@ -1,4 +1,4 @@
-#include "Bencode.h"
+#include "Bencode.hpp"
 #include <string>
 #include <algorithm>
 

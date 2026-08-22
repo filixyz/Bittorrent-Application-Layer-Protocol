@@ -1,15 +1,15 @@
 #ifndef TRACKER_MAN
 #define TRACKER_MAN
 
-#include "HTTPHandler.h"
-#include "PeerManager.h"
-#include "UDPHandler.h"
-#include "TorrentFile.h"
+#include "HTTPHandler.hpp"
+#include "PeerManager.hpp"
+#include "UDPHandler.hpp"
+#include "TorrentFile.hpp"
 #include <chrono>
 #include <cstdint>
 #include <ev++.h>
 #include <unordered_map>
-#include "ThreadMessageTypes.h"
+#include "ThreadMessageTypes.hpp"
 
 class TrackerManager {
   class Tracker;
