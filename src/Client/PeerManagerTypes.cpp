@@ -78,6 +78,10 @@ transact PeerConnection::recv() {
   return tcp.recv(recv_buffer);
 }
 
+bool PeerConnection::connect() {
+  return tcp.pconnect((sockaddr*)&store);
+}
+
 PeerConnection PeerSession::dummypeer{};
 
 transact PeerSession::send() {

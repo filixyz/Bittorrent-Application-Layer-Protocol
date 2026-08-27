@@ -11,18 +11,20 @@
 #include <string>
 #include <sys/socket.h>
 #include <unistd.h>
+#include "../Errorhandlers/BittorentErrors.hpp"
 #include "PeerConnectionManager.hpp"
 #include "PeerManagerTypes.hpp"
+#include "ThreadMessageTypes.hpp"
 
 void PeerConnectionManager::ipv6_default_server_sockstore() {
-  std::memset(&server.store, 0, sizeof(sockaddr_storage));
-  server.store.ss_family = AF_INET6;
+  std::memset(&server.store, 0, sizeof(sockaddr_in));
+  server.store.ipv6.sin6_family = AF_INET6;
   server.store_len = sizeof(sockaddr_in6);
 }
 
 void PeerConnectionManager::ipv4_default_server_sockstore() {
-  std::memset(&server.store, 0, sizeof(sockaddr_storage));
-  server.store.ss_family = AF_INET;
+  std::memset(&server.store, 0, sizeof(sockaddr_in6));
+  server.store.ipv4.sin_family = AF_INET;
   server.store_len = sizeof(sockaddr_in);
 }
 
@@ -31,20 +33,148 @@ void PeerConnectionManager::initialize_manager_watchers() {
   server_socket_watcher.set(server.socket, ev::READ);
   server_socket_watcher.set<PeerConnectionManager, &PeerConnectionManager::server_socket_callback>(this);
   discovered.consumer.set(event_loop);
-  discovered.consumer.set<PeerConnectionManager, &PeerConnectionManager::establish_connections>(this);
+  discovered.consumer.set<PeerConnectionManager, &PeerConnectionManager::drain_discovered>(this);
   disconnects.consumer.set(event_loop);
-  disconnects.consumer.set<PeerConnectionManager, &PeerConnectionManager::reastablish_connections>(this);
+  disconnects.consumer.set<PeerConnectionManager, &PeerConnectionManager::drain_disconnected>(this);
+
 }
 
+void PeerConnectionManager::drain_discovered() {
+  ipv4_peer_address addr;
+  while (discovered.queue.pop(addr)) {
+    ipv4_discovered_cache.push(std::move(addr));
+  }
+  if (establishing) return;
+  establisher.send_notification();
+}
+
+void PeerConnectionManager::drain_disconnected() {
+  establisher.send_notification();
+}
+
+void PeerConnectionManager::erase(PeerConnection& peer) {
+  if (peer.IPv == pipv::ipv6)
+    ipv6_peers.erase(peer.key.ipv6);
+  else if (peer.IPv == pipv::ipv4 || peer.IPv == pipv::ipv4maskedv6)
+    ipv4_peers.erase(peer.key.ipv4);
+  else
+   assert(false && "Peer with no ipv found in connection_manager erase function");
+}
+
+bool PeerConnectionManager::connect(PeerConnection& peer) {
+  if (peer.source == psource::tcp_server) {
+    erase(peer);
+    return false;
+  }
+  if (peer.source == psource::tracker && peer.connect()) {
+    // set watchers here and retry semantics
+    return true;
+  }
+  erase(peer);
+  return false;
+}
+
+bool pmestablisher_t::discovered_peer_handler() {
+  ipv4_peer_address addr;
+  while ( manager.ipv4_discovered_cache.fresh_pop(addr)==true ) {
+    auto [peer_, inserted] = manager.ipv4_peers.try_emplace(addr);
+    if ( !inserted )
+      continue;
+    auto& peer = peer_->second;
+    peer.key.ipv4 = addr;
+    peer.source = psource::tracker;
+    peer.IPv = pipv::ipv4;
+    manager.acquire_peer(peer);
+    if (manager.connect(peer)) {
+      ++current_inflight;
+      return true;
+    } else continue;
+  }
+  return false;
+}
+
+bool pmestablisher_t::disconnected_peer_handler() {
+  disconnect_update disconnected;
+  while ( manager.disconnects.queue.pop(disconnected)==true ) {
+    --manager.connected_peers_count;
+    auto& peer = *const_cast<PeerConnection*>(disconnected.peer);
+    if (peer.tcp.perrno == PEER_SHUTDOWN || peer.source == psource::tcp_server) {
+      manager.erase(peer);
+      continue;
+    }
+    ++peer.fail_stats.failures;
+    manager.acquire_peer(peer);
+    if (manager.connect(peer)) {
+      ++current_inflight;
+      return true;
+    } else continue;
+  }
+  return false;
+}
+
+bool pmestablisher_t::failed_peer_handler() {
+  while ( manager.failed_peers.empty()==false ) {
+    auto& peer = *manager.failed_peers.front();
+    manager.failed_peers.pop();
+    if (peer.fail_stats.failures >= bprotocol::constants::peer::max_reties) {
+      manager.erase(peer);
+      continue;
+    }
+    if (manager.connect(peer)) {
+      ++current_inflight;
+      return true;
+    } else continue;
+  }
+  return false;
+}
+
+void pmestablisher_t::plus_mask_current(std::size_t spot) {
+  current = (spot+1 == handlers_count) ? discovered : static_cast<spot_t>(spot+1);
+}
+
+void pmestablisher_t::round_robin_establisher_scheduler() {
+  // This is a load balancer.
+  for (; current_inflight < bprotocol::constants::max_inflight_conns; ) {
+     std::size_t spot = static_cast<std::size_t>(current);
+    if (current == discovered)
+      empties[spot] = !discovered_peer_handler();
+    else if (current == disconnected)
+      empties[spot] = !disconnected_peer_handler();
+    else if (current == failed)
+      empties[spot] = !failed_peer_handler();
+    if (empties[0] && empties[1] && empties[2])
+      break;
+    plus_mask_current(spot);
+  }
+}
+
+pmestablisher_t::pmestablisher_t(PeerConnectionManager& __manager): manager(__manager) {
+  daemon.set<pmestablisher_t, &pmestablisher_t::round_robin_establisher_scheduler>(this);
+  daemon.set(manager.event_loop);
+}
+
+void pmestablisher_t::send_notification(){
+  daemon.send();
+}
+
+void pmestablisher_t::single_resolve_notification(){
+  --current_inflight;
+  send_notification();
+}
+
+std::size_t pmestablisher_t::get_current_inflight() {
+  return current_inflight;
+}
 
 void PeerConnectionManager::initialize_server_socket() {
   // create socket
+  sockaddr* sock_addr = reinterpret_cast<sockaddr*>( &server.store );
   ipv6_default_server_sockstore();
-  server.socket = socket(server.store.ss_family, server.flags, server.trspt_proto);
+  server.socket = socket(AF_INET6, server.flags, server.trspt_proto);
   if (server.socket<0)
     handle_socket_errno(errno);
   // put off ipv6 only
-  if (server.store.ss_family == AF_INET6) {
+  if (sock_addr->sa_family == AF_INET6) {
     int ipv6only_off_return = setsockopt(server.socket, IPPROTO_IPV6, IPV6_V6ONLY, &server.off_ipv6only, sizeof(server.off_ipv6only));
     if (ipv6only_off_return == 0)
       server.ipv4_support = true;
@@ -52,27 +182,23 @@ void PeerConnectionManager::initialize_server_socket() {
       handle_ip_errno(errno);
   }
   // bind socket
-  if (server.store.ss_family == AF_INET6) {
-    sockaddr_in6* ipv6_intf = (sockaddr_in6*) &server.store;
-    ipv6_intf->sin6_addr = in6addr_any;
-    ipv6_intf->sin6_port = 0;
+  if (sock_addr->sa_family == AF_INET6) {
+    server.store.ipv6.sin6_addr = in6addr_any;
+    server.store.ipv6.sin6_port = 0;
   } else {
-    sockaddr_in* ipv4_intf = (sockaddr_in*) &server.store;
-    ipv4_intf->sin_addr.s_addr = INADDR_ANY;
-    ipv4_intf->sin_port = 0;
+    server.store.ipv4.sin_addr.s_addr = INADDR_ANY;
+    server.store.ipv4.sin_port = 0;
   }
   while (true) {
-    int bind_return = bind(server.socket, (sockaddr*)(&server.store), server.store_len);
+    int bind_return = bind(server.socket, sock_addr , server.store_len);
     if (bind_return == 0) break;
     handle_bind_errno(errno);
   }
   // get listening port
-  int get_sock_name_return = getsockname(server.socket, (sockaddr*) &server.store , &server.store_len);
+  int get_sock_name_return = getsockname(server.socket, sock_addr , &server.store_len);
   if (get_sock_name_return != 0)
     throw Peer_Manager_SYS_Error{errno};
-  server.port = ntohs( server.store.ss_family==AF_INET6 ?
-    ((sockaddr_in6*)&server.store)->sin6_port : ((sockaddr_in*)&server.store)->sin_port
-  );
+  server.port = ntohs( sock_addr->sa_family ==AF_INET6 ? server.store.ipv6.sin6_port : server.store.ipv4.sin_port);
   // mark as listening
   int listen_return = listen(server.socket, bprotocol::constants::connection_backlog);
   if (listen_return != 0)
@@ -84,7 +210,7 @@ int PeerConnectionManager::initialize_libev() {
 }
 
 PeerConnectionManager::PeerConnectionManager(TorrentFile& a, pconnection_queue& b, pdisconnection_queue& c ,pdiscovery_queue_ipv4& d)
-  :event_loop(initialize_libev()), torrent(a), connects(b), disconnects(c), discovered(d) {
+  :event_loop(initialize_libev()), torrent(a), connects(b), disconnects(c), discovered(d), establisher(*this) {
   ev_set_userdata(event_loop.raw_loop, this);
   initialize_server_socket();
   initialize_manager_watchers();
@@ -92,7 +218,8 @@ PeerConnectionManager::PeerConnectionManager(TorrentFile& a, pconnection_queue& 
 
 
 bool PeerConnectionManager::accept_peer_connection() {
-  sockaddr_storage new_store{};
+  union {sockaddr_in ipv4; sockaddr_in6 ipv6;} new_store{};
+  sockaddr* sock_addr = reinterpret_cast<sockaddr*>(&new_store);
   int accept_return = accept4(server.socket, (sockaddr*)&new_store, &server.store_len, SOCK_NONBLOCK);
   if (accept_return<0)
     return handle_server_errno(errno);
@@ -101,22 +228,20 @@ bool PeerConnectionManager::accept_peer_connection() {
   sa_family_t peer_family;
   in_port_t   peer_port;
   void*       peer_addr_src;
-  if (server.store.ss_family==AF_INET6) {
-    sockaddr_in6* peer6 = (sockaddr_in6*) &new_store;
-    if (IN6_IS_ADDR_V4MAPPED(&peer6->sin6_addr)) {
+  if (sock_addr->sa_family ==AF_INET6) {
+    if (IN6_IS_ADDR_V4MAPPED(&new_store.ipv6.sin6_addr)) {
       peer_family = AF_INET;
-      peer_addr_src = &peer6->sin6_addr.s6_addr[12];
+      peer_addr_src = &new_store.ipv6.sin6_addr.s6_addr[12];
     } else {
       peer_family = AF_INET6;
-      peer_addr_src = &peer6->sin6_addr;
+      peer_addr_src = &new_store.ipv6.sin6_addr;
     }
-    peer_port = ntohs(peer6->sin6_port);
+    peer_port = ntohs(new_store.ipv6.sin6_port);
   }
-  else if (server.store.ss_family==AF_INET) {
-    sockaddr_in* peer4 = (sockaddr_in*) &new_store;
+  else if (sock_addr->sa_family==AF_INET) {
     peer_family = AF_INET;
-    peer_addr_src = &peer4->sin_addr;
-    peer_port = ntohs(peer4->sin_port);
+    peer_addr_src = &new_store.ipv4.sin_addr;
+    peer_port = ntohs(new_store.ipv4.sin_port);
   }
   else {
     assert(false && "Unexpected Address Family: accept_peer_connection");
@@ -141,14 +266,6 @@ bool PeerConnectionManager::accept_peer_connection() {
   return true;
 }
 
-void PeerConnectionManager::initiate_new_connection() {
-  if (discovered.queue.empty() || connected_peers_count>=bprotocol::constants::healthy_peer_count)
-    return;
-  auto peer = std::move(discovered.queue.front());
-  discovered.queue.pop();
-//  if (peer_handles.find(peer))
-
-}
 
 void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
   PeerConnectionManager& manager = *static_cast<PeerConnectionManager*>(ev_userdata(sw.loop.raw_loop));
@@ -168,7 +285,7 @@ void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
         }
         peer.state = pstate::CONNECTED;
         manager.dispatch_connect(peer);
-        manager.initiate_new_connection();
+        manager.establisher.single_resolve_notification();
         return;
       }
       return;
@@ -216,12 +333,6 @@ void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
   }
 }
 
-void PeerConnectionManager::handle_disconnect(PeerConnection& peer) {
-  // acquire_peer(peer);
-  // add to recconnection container
-  --connected_peers_count;
-}
-
 void PeerConnectionManager::acquire_peer(PeerConnection& peer) {
   peer.listener.for_sock.set(peer.tcp.socket, ev::READ);
   peer.listener.for_sock.set<&PeerConnectionManager::peer_socket_callback>();
@@ -240,8 +351,8 @@ void PeerConnectionManager::dispatch_connect(PeerConnection& peer) {
   release_peer(peer);
   ++peer.generation;
   ++connected_peers_count;
-  connect_update new_connect { .peer=&peer, .id=peer.id, .generation=peer.generation };
-  connects.queue.push(std::move(new_connect));
+  connect_update new_connect { .peer=&peer, .socket=peer.tcp.socket, .id=peer.id, .generation=peer.generation };
+  (void)connects.queue.push(std::move(new_connect));
   connects.consumer.send();
 }
 

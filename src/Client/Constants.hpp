@@ -10,4 +10,9 @@ namespace bprotocol::constants {
   inline constexpr std::size_t max_inflight_conns = 5;
   inline constexpr std::size_t connection_backlog = 128;
   inline constexpr std::size_t rankify_duration = 10; //secs
+
+  namespace peer {
+    constexpr std::size_t max_reties = 3;
+    constexpr std::size_t retry_timeout = 30;//seconds;
+  }
 }

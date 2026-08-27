@@ -3,14 +3,11 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <mutex>
-#include <queue>
 #include <sys/types.h>
 #include <unistd.h>
 #include <utility>
 #include <bitset>
 #include <ev++.h>
-#include "Constants.hpp"
 #include "DynamicBitset.hpp"
 #include "TCPRingBuffer.hpp"
 #include "ThreadMessageTypes.hpp"
@@ -39,7 +36,8 @@ struct transact {
 struct tcp_server_context
 {
   int socket{};
-  sockaddr_storage store{};
+  //sockaddr_storage store{};
+  union {sockaddr_in ipv4; sockaddr_in6 ipv6;} store{};
   socklen_t store_len{};
   int flags {SOCK_STREAM|SOCK_NONBLOCK};
   int trspt_proto{IPPROTO_TCP};
@@ -98,7 +96,7 @@ private:
   bool pconnect(const sockaddr*);
   void pclose();
   void disconnect();
-  friend PeerConnectionManager;
+  friend PeerConnection;
 };
 
 struct peer_watchers {
@@ -108,30 +106,44 @@ struct peer_watchers {
 
 enum class pstate: std::uint8_t {DISCOVERED, S_HANDSHAKE, C_HANDSHAKE, CONNECTED, DISCONNECTED, DEAD};
 enum class psource: std::uint8_t {null, tracker, tcp_server};
+enum class pipv: std::uint8_t {null, ipv4, ipv6, ipv4maskedv6};
 using peer_id_t = std::array<std::byte, 20>;
+
+struct pc_fail_stat{
+  std::size_t failures{0};
+  std::size_t retry_backoff = 15;//secs
+};
 
 struct PeerConnection {
   peer_nonblock_tcp tcp;
   union { sockaddr_in ipv4_store; sockaddr_in6 ipv6_store; } store{};
   hanshake_buffer recv_buffer{};
   hanshake_buffer send_buffer{};
+
+  union { ipv4_peer_address ipv4; ipv6_peer_address ipv6; } key{};
   pstate state {pstate::DISCOVERED};
   psource source {psource::null};
+  pipv IPv {pipv::null};
   peer_id_t peer_id;
+
   std::size_t id;
   std::size_t generation{0};
+
   peer_watchers listener;
+  pc_fail_stat fail_stats;
   transact recv();
   transact send();
+  bool connect();
 };
 
 struct PeerSession {
+  enum from { me=0, them=1 };
+public:
   peer_nonblock_tcp tcp;
   session_buffer recv_buffer{};
   session_buffer send_buffer{};
   std::size_t id;
   std::size_t generation;
-  enum from { me=0, them=1 };
   std::bitset<2> choke {};
   std::bitset<2> interest {};
   std::size_t down_rate{0};
@@ -160,17 +172,9 @@ struct disconnect_update {
   int perrno;
 };
 
-#include "spsc_queue.hpp"
-
-template<class T>
-struct consumer_queue {
-  spsc_queue<T, bprotocol::constants::healthy_peer_count> queue;
-  ev::async notification;
-};
-
-using pconnection_queue = consumer_queue<connect_update>;
-using pdisconnection_queue = consumer_queue<disconnect_update>;
-using pdiscovery_queue_ipv4 = consumer_queue<ipv4_peer_address>;
+using pconnection_queue = nspsc_queue<connect_update, 50>;
+using pdisconnection_queue = nspsc_queue<disconnect_update, 50>;
+using pdiscovery_queue_ipv4 = nspsc_queue<ipv4_peer_address, 50>;
 
 struct peer_manager_hashers {
   std::size_t operator()(const ipv4_peer_address& key) const noexcept {

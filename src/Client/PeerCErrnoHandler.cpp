@@ -1,5 +1,7 @@
 #include "PeerConnectionManager.hpp"
+#include "../Errorhandlers/BittorentErrors.hpp"
 #include <cstring>
+#include <sys/socket.h>
 
 
 bool PeerConnectionManager::handle_server_errno(int error){
@@ -13,7 +15,7 @@ bool PeerConnectionManager::handle_server_errno(int error){
 void PeerConnectionManager::handle_socket_errno(int error) {
   if (error == EAFNOSUPPORT) {
     ipv4_default_server_sockstore();
-    server.socket = socket(server.store.ss_family, server.flags, server.trspt_proto);
+    server.socket = socket(AF_INET, server.flags, server.trspt_proto);
     if (server.socket<0)
       throw Peer_Manager_SYS_Error{error};
     server.ipv4_support=true;
