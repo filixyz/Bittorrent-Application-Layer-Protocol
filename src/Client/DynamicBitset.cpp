@@ -31,13 +31,19 @@ DynamicBitset::DynamicBitset(std::span<std::uint8_t> view){
 }
 
 void DynamicBitset::operator|=(const DynamicBitset& other) {
-  if (other.length > length) bitfield.resize(other.length);
+  if (other.length > length) {
+    bitfield.resize(other.length);
+    length = other.length;
+  }
   for (std::size_t i=0; i < other.bitfield.size(); ++i)
     bitfield[i] |= other.bitfield[i];
 }
 
 void DynamicBitset::operator&=(const DynamicBitset& other) {
-  if (other.length > length) bitfield.resize(other.length);
+  if (other.length > length) {
+    bitfield.resize(other.length);
+    length = other.length;
+  }
   for (std::size_t i=0; i < other.bitfield.size(); ++i)
     bitfield[i] &= other.bitfield[i];
 }
