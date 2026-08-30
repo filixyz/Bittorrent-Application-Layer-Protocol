@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <iostream>
 #include <bitset>
+#include <cassert>
 
 std::size_t DynamicBitset::get_bytes_for_bits(std::size_t bits) {
   std::size_t extra = bits & (63) ? 1 : 0;
@@ -15,8 +16,7 @@ DynamicBitset::DynamicBitset(std::size_t count) : length(count){
   bitfield.shrink_to_fit();
 };
 
-DynamicBitset::DynamicBitset(std::span<std::uint8_t> view){
-  length = view.size()*8;
+DynamicBitset::DynamicBitset(std::span<std::uint8_t> view) : length(view.size()*8){
   bitfield.resize(get_bytes_for_bits(length));
   std::size_t set_index=0;
   std::uint8_t offset = 0;
@@ -31,20 +31,14 @@ DynamicBitset::DynamicBitset(std::span<std::uint8_t> view){
 }
 
 void DynamicBitset::operator|=(const DynamicBitset& other) {
-  if (other.length > length) {
-    bitfield.resize(other.length);
-    length = other.length;
-  }
-  for (std::size_t i=0; i < other.bitfield.size(); ++i)
+  assert(length == other.length);
+  for (std::size_t i=0; i < bitfield.size(); ++i)
     bitfield[i] |= other.bitfield[i];
 }
 
 void DynamicBitset::operator&=(const DynamicBitset& other) {
-  if (other.length > length) {
-    bitfield.resize(other.length);
-    length = other.length;
-  }
-  for (std::size_t i=0; i < other.bitfield.size(); ++i)
+  assert(length == other.length);
+  for (std::size_t i=0; i < bitfield.size(); ++i)
     bitfield[i] &= other.bitfield[i];
 }
 

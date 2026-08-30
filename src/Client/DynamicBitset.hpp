@@ -6,7 +6,7 @@
 
 class DynamicBitset {
   std::vector<std::uint64_t> bitfield;
-  std::size_t length{};
+  const std::size_t length{};
   std::size_t get_bytes_for_bits(std::size_t);
 public:
   DynamicBitset()=default;
