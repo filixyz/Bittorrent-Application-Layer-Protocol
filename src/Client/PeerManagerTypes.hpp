@@ -89,31 +89,31 @@ struct peer_nonblock_tcp {
     return {true, prepare.buffered};
   }
 
+  void pclose();
 private:
   bool handle_send_perrno(int);
   bool handle_recv_perrno(int);
   bool handle_connect_perrno(int);
   bool pconnect(const sockaddr*);
-  void pclose();
   void disconnect();
   friend PeerConnection;
+};
+
+enum class pstate:  std::uint8_t  {null, DISCOVERED, HANDSHAKE, CONNECTED, DISCONNECTED};
+enum class psource: std::uint8_t  {null, tracker, tcp_server};
+enum class pipv:    std::uint8_t  {null, ipv4, ipv6, ipv4maskedv6};
+using peer_id_t                =  std::array<std::byte, 20>;
+using peer_key_t               =  union { ipv4_peer_address ipv4; ipv6_peer_address ipv6; };
+using peer_sock_store_t        =  union { sockaddr_in ipv4_store; sockaddr_in6 ipv6_store; };
+
+struct pc_fail_stat{
+  std::size_t failures{0};
+  std::size_t retry_backoff = 15;//secs
 };
 
 struct peer_watchers {
   ev::io for_sock;
   ev::timer for_timer;
-};
-
-enum class pstate: std::uint8_t {DISCOVERED, HANDSHAKE, CONNECTED, DISCONNECTED, DEAD};
-enum class psource: std::uint8_t {null, tracker, tcp_server};
-enum class pipv: std::uint8_t {null, ipv4, ipv6, ipv4maskedv6};
-using peer_id_t = std::array<std::byte, 20>;
-using peer_key_t = union { ipv4_peer_address ipv4; ipv6_peer_address ipv6; };
-using peer_sock_store_t = union { sockaddr_in ipv4_store; sockaddr_in6 ipv6_store; };
-
-struct pc_fail_stat{
-  std::size_t failures{0};
-  std::size_t retry_backoff = 15;//secs
 };
 
 struct PeerConnection {
@@ -123,16 +123,16 @@ struct PeerConnection {
   hanshake_buffer send_buffer{};
 
   peer_key_t key{};
-  pstate state {pstate::DISCOVERED};
+  peer_id_t peer_id;
+  pstate state {pstate::null};
   psource source {psource::null};
   pipv IPv {pipv::null};
-  peer_id_t peer_id;
 
   std::size_t id;
   std::size_t generation{0};
+  pc_fail_stat fail_stats;
 
   peer_watchers listener;
-  pc_fail_stat fail_stats;
   transact recv();
   transact send();
   bool connect();
@@ -163,18 +163,17 @@ public:
   std::bitset<2> interest {};
   std::size_t down_rate{0};
   std::size_t upld_rate{0};
-  peer_watchers watcher;
   DynamicBitset bitfield;
+  peer_watchers watcher;
   void set_endpoint(const connect_update);
   bool is_dummy();
   disconnect_update endpoint_disconnected();
   transact send();
   transact recv();
 private:
-  const PeerConnection* peer {&dummypeer};
-  static PeerConnection dummypeer;
+  const  PeerConnection* peer {&dummypeer};
+  static PeerConnection  dummypeer;
 };
-
 
 using pconnection_queue = nspsc_queue<connect_update, 50>;
 using pdisconnection_queue = nspsc_queue<disconnect_update, 50>;

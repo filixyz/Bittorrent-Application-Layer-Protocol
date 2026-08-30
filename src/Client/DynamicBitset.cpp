@@ -86,3 +86,7 @@ void DynamicBitset::reset(std::size_t index) {
 void DynamicBitset::reset_set() {
   std::fill(bitfield.begin(), bitfield.end(), std::uint64_t{0});
 }
+
+std::size_t DynamicBitset::size() {
+  return length;
+}

@@ -22,5 +22,6 @@ public:
   void set(std::size_t);
   void reset(std::size_t);
   void reset_set();
+  std::size_t size();
   void print();
 };

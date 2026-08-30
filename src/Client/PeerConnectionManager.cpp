@@ -141,7 +141,7 @@ bool pmestablisher_t::failed_peer_handler() {
 }
 
 void pmestablisher_t::plus_mask_current(std::size_t spot) {
-  current = (spot+1 == handlers_count) ? discovered : static_cast<spot_t>(spot+1);
+  current = (spot+1 == handlers_count) ? static_cast<spot_t>(0) : static_cast<spot_t>(spot+1);
 }
 
 void pmestablisher_t::round_robin_establisher_scheduler() {

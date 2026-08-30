@@ -59,12 +59,13 @@ bool peer_nonblock_tcp::handle_connect_perrno(int err) {
 
 void peer_nonblock_tcp::pclose() {
   if (socket == -1) {
-    perrno = EBADF;
     return;
   }
   close(socket);
   socket = -1;
   perrno = -1;
+  ephemereal_hdr.msg_iov = nullptr;
+  ephemereal_hdr.msg_iovlen = 0;
 }
 
 void peer_nonblock_tcp::disconnect(){
@@ -105,20 +106,15 @@ void PeerSession::set_endpoint(const connect_update endpoint) {
 }
 
 disconnect_update PeerSession::endpoint_disconnected() {
-  disconnect_update disconnected {
-    .peer=peer, .generation=generation, .perrno=tcp.perrno
-  };
-  id = 0;
+  disconnect_update disconnected { .peer=peer, .generation=generation, .perrno=tcp.perrno };
+  id         = 0;
   generation = 0;
-  down_rate = 0;
-  upld_rate = 0;
+  down_rate  = 0;
+  upld_rate  = 0;
   choke.set();
   interest.reset();
-  close(tcp.socket);
-  tcp.socket = -1;
-  tcp.perrno = -1;
-  tcp.ephemereal_hdr.msg_iov = nullptr;
-  tcp.ephemereal_hdr.msg_iovlen = 0;
+  bitfield.reset_set();
+  tcp.pclose();
   recv_buffer.reset();
   send_buffer.reset();
   watcher.for_sock.stop();
