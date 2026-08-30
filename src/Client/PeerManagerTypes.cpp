@@ -21,6 +21,7 @@ bool peer_nonblock_tcp::pconnect(const sockaddr* addr) {
   if (connect_return<0)
     return handle_connect_perrno(errno);
   perrno = -1;
+  socket = connect_return;
   return true;
 }
 
@@ -96,17 +97,24 @@ bool PeerSession::is_dummy() {
   return peer == &dummypeer;
 }
 
-void PeerSession::set_endpoint(const PeerConnection* peer_) {
-  peer = peer_;
+void PeerSession::set_endpoint(const connect_update endpoint) {
+  peer = endpoint.peer;
+  id = endpoint.id;
+  generation = endpoint.generation;
+  tcp.socket = endpoint.socket;
 }
 
-const PeerConnection* PeerSession::endpoint_disconnected() {
+disconnect_update PeerSession::endpoint_disconnected() {
+  disconnect_update disconnected {
+    .peer=peer, .generation=generation, .perrno=tcp.perrno
+  };
   id = 0;
   generation = 0;
   down_rate = 0;
   upld_rate = 0;
   choke.set();
   interest.reset();
+  close(tcp.socket);
   tcp.socket = -1;
   tcp.perrno = -1;
   tcp.ephemereal_hdr.msg_iov = nullptr;
@@ -115,7 +123,6 @@ const PeerConnection* PeerSession::endpoint_disconnected() {
   send_buffer.reset();
   watcher.for_sock.stop();
   watcher.for_timer.stop();
-  auto disconnected = peer;
   peer = &dummypeer;
   return disconnected;
 }

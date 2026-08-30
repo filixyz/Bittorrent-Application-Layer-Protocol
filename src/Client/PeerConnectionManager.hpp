@@ -42,6 +42,8 @@ class pmestablisher_t {
 
 class PeerConnectionManager {
   friend class pmestablisher_t;
+  template <typename Key>
+  using peer_storage_t = std::unordered_map< Key, PeerConnection, peer_manager_hashers>;
 private:
   // tells if peers from discovered queue are still actively
   // being tried for connection establishment
@@ -58,8 +60,8 @@ private:
   pdiscovery_queue_ipv4& discovered;
 
   tcp_server_context server;
-  std::unordered_map<ipv4_peer_address, PeerConnection, peer_manager_hashers> ipv4_peers{};
-  std::unordered_map<ipv6_peer_address, PeerConnection, peer_manager_hashers> ipv6_peers{};
+  peer_storage_t<ipv4_peer_address> ipv4_peers{};
+  peer_storage_t<ipv6_peer_address> ipv6_peers{};
   overwritable_cache<ipv4_peer_address, 100> ipv4_discovered_cache;
   std::queue<PeerConnection*> failed_peers;
   std::unordered_map<peer_id_t, PeerConnection*, peer_manager_hashers> peer_ids; // for deduplication after handshake.
@@ -80,6 +82,8 @@ private:
   void initialize_server_socket();
   void initialize_manager_watchers();
 
+  void initialize_peer(PeerConnection&, peer_key_t&, pipv, psource);
+  void server_define_peer(PeerConnection&, int, peer_sock_store_t*);
   void acquire_peer(PeerConnection&);
   void release_peer(PeerConnection&);
   int  parse_handshake(PeerConnection&);
