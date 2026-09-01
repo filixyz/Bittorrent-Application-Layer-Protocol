@@ -22,11 +22,13 @@
 #include <netdb.h>
 
 inline constexpr int PEER_SHUTDOWN = -100;
+inline constexpr int NO_ERROR      = -1;
 
 class PeerTransferManager;
 class PeerConnectionManager;
 struct PeerConnection;
 struct PeerSession;
+struct peer_nonblock_tcp;
 
 struct transact {
   bool success;   // if true peer is still connected, otherwise false
@@ -36,7 +38,7 @@ struct transact {
 struct tcp_server_context
 {
   int socket{};
-  //sockaddr_storage store{};
+  //sockaddr_storage store{} ├── EINPROGRESS         → WAITING;
   union {sockaddr_in ipv4; sockaddr_in6 ipv6;} store{};
   socklen_t store_len{};
   int flags {SOCK_STREAM|SOCK_NONBLOCK};
@@ -46,11 +48,14 @@ struct tcp_server_context
   int port{0};
 };
 
+enum pconnect_return_t:std::uint8_t { inprogress, failed, connected };
+
 struct peer_nonblock_tcp {
-  int socket{-1};
+private:
+  int __socket{-1};
   int perrno{-1};
   msghdr ephemereal_hdr{};
-
+public:
   template<std::size_t N>
   transact send(tcp_buffer<N>& buffer) {
     prepare_t prepare = buffer.prepare_read();
@@ -58,7 +63,7 @@ struct peer_nonblock_tcp {
     ephemereal_hdr.msg_iovlen = prepare.iovec.second;
 
     ssize_t send_return; do {
-      send_return = sendmsg(socket, &ephemereal_hdr, MSG_NOSIGNAL);
+      send_return = sendmsg(__socket, &ephemereal_hdr, MSG_NOSIGNAL);
     } while (send_return<0 && errno == EINTR);
 
     if (send_return<0)
@@ -75,7 +80,7 @@ struct peer_nonblock_tcp {
     ephemereal_hdr.msg_iovlen = prepare.iovec.second;
 
     ssize_t recv_return; do {
-      recv_return = recvmsg(socket, &ephemereal_hdr, 0);
+      recv_return = recvmsg(__socket, &ephemereal_hdr, 0);
     } while (recv_return<0 && errno == EINTR);
 
     if (recv_return == 0) {
@@ -88,15 +93,25 @@ struct peer_nonblock_tcp {
     buffer.commit_write(recv_return);
     return {true, prepare.buffered};
   }
-
-  void pclose();
+  [[nodiscard]] bool adopt_socket(int);
+  int  get_socket();
+  int  get_errno();
+  void close_socket();
+public:
+  peer_nonblock_tcp() = default;
+  peer_nonblock_tcp(const peer_nonblock_tcp&) = delete;
+  peer_nonblock_tcp& operator=(const peer_nonblock_tcp&) = delete;
+  ~peer_nonblock_tcp() noexcept;
+  peer_nonblock_tcp(peer_nonblock_tcp&& other) noexcept;
+  peer_nonblock_tcp& operator=(peer_nonblock_tcp&& other) noexcept;
 private:
   bool handle_send_perrno(int);
   bool handle_recv_perrno(int);
   bool handle_connect_perrno(int);
-  bool pconnect(const sockaddr*);
+  pconnect_return_t pconnect(const sockaddr*, int);
+  bool open_socket(int __domain);
   void disconnect();
-  friend PeerConnection;
+  friend PeerConnectionManager;
 };
 
 enum class pstate:  std::uint8_t  {null, DISCOVERED, HANDSHAKE, CONNECTED, DISCONNECTED};
@@ -109,6 +124,7 @@ using peer_sock_store_t        =  union { sockaddr_in ipv4_store; sockaddr_in6 i
 struct pc_fail_stat{
   std::size_t failures{0};
   std::size_t retry_backoff = 15;//secs
+  void reset();
 };
 
 struct peer_watchers {
@@ -121,6 +137,7 @@ struct PeerConnection {
   peer_sock_store_t store{};
   hanshake_buffer recv_buffer{};
   hanshake_buffer send_buffer{};
+  peer_watchers listener;
 
   peer_key_t key{};
   peer_id_t peer_id;
@@ -132,10 +149,8 @@ struct PeerConnection {
   std::size_t generation{0};
   pc_fail_stat fail_stats;
 
-  peer_watchers listener;
   transact recv();
   transact send();
-  bool connect();
 };
 
 struct connect_update {
@@ -157,6 +172,7 @@ public:
   peer_nonblock_tcp tcp;
   session_buffer recv_buffer{};
   session_buffer send_buffer{};
+  peer_watchers watcher;
   std::size_t id;
   std::size_t generation;
   std::bitset<2> choke {};
@@ -164,7 +180,6 @@ public:
   std::size_t down_rate{0};
   std::size_t upld_rate{0};
   DynamicBitset bitfield;
-  peer_watchers watcher;
   void set_endpoint(const connect_update);
   bool is_dummy();
   disconnect_update endpoint_disconnected();

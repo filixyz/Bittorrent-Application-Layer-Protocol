@@ -32,6 +32,7 @@ class pmestablisher_t {
     bool failed_peer_handler();
     void plus_mask_current(std::size_t spot);
     void round_robin_establisher_scheduler();
+    bool initiate_connect(PeerConnection&);
 
   public:
     pmestablisher_t(PeerConnectionManager& __manager);

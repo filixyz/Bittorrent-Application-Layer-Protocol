@@ -5,24 +5,55 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-bool peer_nonblock_tcp::pconnect(const sockaddr* addr) {
-  if (socket == -1) {
-    perrno = EBADF;
+bool peer_nonblock_tcp::open_socket(int __domain) {
+  // cannot set socket when a socket is already assigned
+  // A new socket can only be assigned after pclose.
+  if (__socket !=-1) {
+    perrno = EINVAL;
     return false;
   }
-  socklen_t addrlen;
-  if      (addr->sa_family == AF_INET)  addrlen = sizeof(sockaddr_in);
-  else if (addr->sa_family == AF_INET6) addrlen = sizeof(sockaddr_in6);
-  else    {
+  if (__domain != AF_INET && __domain != AF_INET6) {
     perrno = EAFNOSUPPORT;
     return false;
   }
-  int connect_return = connect(socket, addr, addrlen);
-  if (connect_return<0)
-    return handle_connect_perrno(errno);
-  perrno = -1;
-  socket = connect_return;
+
+  int socket_return; do {
+    socket_return = socket( __domain, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP );
+  } while (socket_return<0 && errno == EINTR);
+
+  if (socket_return < 0) {
+    perrno = errno;
+    return false;
+  }
+  __socket = socket_return;
   return true;
+}
+
+pconnect_return_t peer_nonblock_tcp::pconnect( const sockaddr* addr,int address_family) {
+  if (__socket == -1) {
+    perrno = EBADF;
+    return failed;
+  }
+  socklen_t addrlen;
+  if      (address_family == AF_INET)   addrlen = sizeof(sockaddr_in);
+  else if (address_family == AF_INET6)  addrlen = sizeof(sockaddr_in6);
+  else {
+    perrno = EAFNOSUPPORT;
+    return failed;
+  }
+  int connect_return; do {
+    connect_return = connect(__socket, addr, addrlen);
+  } while (connect_return < 0 && errno == EINTR);
+  if (connect_return == 0) {
+    perrno = -1;
+    return connected;
+  }
+  if (connect_return < 0 && errno == EINPROGRESS) {
+    perrno = EINPROGRESS;
+    return inprogress;
+  }
+  perrno = errno;
+  return failed;
 }
 
 bool peer_nonblock_tcp::handle_send_perrno(int err) {
@@ -57,19 +88,61 @@ bool peer_nonblock_tcp::handle_connect_perrno(int err) {
   }
 }
 
-void peer_nonblock_tcp::pclose() {
-  if (socket == -1) {
-    return;
+void peer_nonblock_tcp::close_socket() {
+  if (__socket != -1) {
+    close(__socket);
+    __socket = -1;
   }
-  close(socket);
-  socket = -1;
   perrno = -1;
   ephemereal_hdr.msg_iov = nullptr;
   ephemereal_hdr.msg_iovlen = 0;
 }
 
 void peer_nonblock_tcp::disconnect(){
-  pclose();
+  close_socket();
+}
+
+int peer_nonblock_tcp::get_socket() {
+  return __socket;
+}
+
+[[ nodiscard ]] bool peer_nonblock_tcp::adopt_socket(int __sock) {
+  if (__socket!=-1 || __sock ==-1)
+    return false;
+  __socket = __sock;
+  return false;
+}
+
+int peer_nonblock_tcp::get_errno() {
+  return perrno;
+}
+
+peer_nonblock_tcp::~peer_nonblock_tcp() noexcept {
+  close_socket();
+}
+
+
+peer_nonblock_tcp::peer_nonblock_tcp(peer_nonblock_tcp&& other) noexcept {
+ __socket = other.__socket;
+ perrno = other.perrno;
+ ephemereal_hdr.msg_iov = other.ephemereal_hdr.msg_iov;
+ ephemereal_hdr.msg_iovlen = other.ephemereal_hdr.msg_iovlen;
+ other.close_socket();
+}
+
+peer_nonblock_tcp& peer_nonblock_tcp::operator=(peer_nonblock_tcp&& other) noexcept {
+  if (this == &other)
+    return *this;
+
+  close_socket();
+
+  __socket = other.__socket;
+  perrno = other.perrno;
+  ephemereal_hdr.msg_iov = other.ephemereal_hdr.msg_iov;
+  ephemereal_hdr.msg_iovlen = other.ephemereal_hdr.msg_iovlen;
+  other.close_socket();
+
+  return *this;
 }
 
 transact PeerConnection::send() {
@@ -78,10 +151,6 @@ transact PeerConnection::send() {
 
 transact PeerConnection::recv() {
   return tcp.recv(recv_buffer);
-}
-
-bool PeerConnection::connect() {
-  return tcp.pconnect((sockaddr*)&store);
 }
 
 PeerConnection PeerSession::dummypeer{};
@@ -102,11 +171,11 @@ void PeerSession::set_endpoint(const connect_update endpoint) {
   peer = endpoint.peer;
   id = endpoint.id;
   generation = endpoint.generation;
-  tcp.socket = endpoint.socket;
+  (void)tcp.adopt_socket(endpoint.socket);
 }
 
 disconnect_update PeerSession::endpoint_disconnected() {
-  disconnect_update disconnected { .peer=peer, .generation=generation, .perrno=tcp.perrno };
+  disconnect_update disconnected { .peer=peer, .generation=generation, .perrno=tcp.get_errno() };
   id         = 0;
   generation = 0;
   down_rate  = 0;
@@ -114,11 +183,16 @@ disconnect_update PeerSession::endpoint_disconnected() {
   choke.set();
   interest.reset();
   bitfield.reset_set();
-  tcp.pclose();
+  tcp.close_socket();
   recv_buffer.reset();
   send_buffer.reset();
   watcher.for_sock.stop();
   watcher.for_timer.stop();
   peer = &dummypeer;
   return disconnected;
+}
+
+void pc_fail_stat::reset() {
+  failures = 0;
+  retry_backoff = 15;
 }

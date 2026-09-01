@@ -13,6 +13,7 @@ namespace bprotocol::constants {
 
   namespace peer {
     constexpr std::size_t max_reties = 3;
+    constexpr std::size_t connect_timeout = 10;//seconds;
     constexpr std::size_t retry_timeout = 30;//seconds;
   }
 }

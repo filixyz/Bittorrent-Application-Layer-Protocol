@@ -8,8 +8,6 @@
 #include <ev.h>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <ranges>
-#include <string>
 #include <sys/socket.h>
 #include <unistd.h>
 #include "../Errorhandlers/BittorentErrors.hpp"
@@ -63,19 +61,47 @@ void PeerConnectionManager::erase(PeerConnection& peer) {
 }
 
 bool PeerConnectionManager::connect(PeerConnection& peer) {
-  if (peer.source == psource::tcp_server) {
-    erase(peer);
+  if (peer.source != psource::tracker) {
+    assert (
+      false && "non tracker retrived peer made it into"
+      "peerconnectionmanager::connect(peerconnection&)"
+    );
     return false;
   }
-  if (peer.source == psource::tracker) {
-    if (peer.generation==0 && peer.fail_stats.failures==0) {
+  sockaddr* sock_addr = reinterpret_cast<sockaddr*>(&peer.store);
+  if ( peer.tcp.open_socket(sock_addr->sa_family) == false )
+    return false;
+  pconnect_return_t resolve = peer.tcp.pconnect(sock_addr, sock_addr->sa_family);
+  if ( resolve == failed )
+    return false;
 
-    }
-    auto& sockstruct = peer.store.ipv4_store;
+  peer.listener.for_sock
+    .set(peer.tcp.get_socket(), EV_WRITE);
+  peer.listener.for_sock
+    .start();
+  peer.listener.for_timer
+    .set(bprotocol::constants::peer::connect_timeout);
+  peer.listener.for_timer
+    .start();
 
+  if ( resolve == connected ) {
+    peer.fail_stats.reset();
+    peer.state = pstate::HANDSHAKE;
+    peer.listener.for_sock.feed_event(EV_WRITE);
+  }
+
+  if ( resolve == inprogress ) {
+  }
+
+  return true;
+}
+
+bool pmestablisher_t::initiate_connect(PeerConnection& peer) {
+  if (manager.connect(peer)) {
+    ++current_inflight;
     return true;
   }
-  erase(peer);
+  manager.erase(peer);
   return false;
 }
 
@@ -89,11 +115,9 @@ bool pmestablisher_t::discovered_peer_handler() {
     auto& peer = peer_->second;
     manager.initialize_peer(peer, peer_key, pipv::ipv4, psource::tracker);
     peer.state = pstate::DISCOVERED;
-    if (manager.connect(peer)) {
-      peer.listener.for_sock.start();
-      ++current_inflight;
-      return true;
-    } else continue;
+    if ( initiate_connect(peer) == false )
+      continue;
+    return true;
   }
   return false;
 }
@@ -110,16 +134,14 @@ bool pmestablisher_t::disconnected_peer_handler() {
     }
     peer.state = pstate::DISCONNECTED;
     --manager.connected_peers_count;
-    if (peer.tcp.perrno == PEER_SHUTDOWN || peer.source == psource::tcp_server) {
+    if (peer.tcp.get_errno() == PEER_SHUTDOWN || peer.source == psource::tcp_server) {
       manager.erase(peer);
       continue;
     }
-    ++peer.fail_stats.failures;
-    manager.acquire_peer(peer);
-    if (manager.connect(peer)) {
-      ++current_inflight;
-      return true;
-    } else continue;
+    peer.fail_stats.failures++;
+    if ( initiate_connect(peer) == false )
+      continue;
+    return true;
   }
   return false;
 }
@@ -128,14 +150,15 @@ bool pmestablisher_t::failed_peer_handler() {
   while ( manager.failed_peers.empty()==false ) {
     auto& peer = *manager.failed_peers.front();
     manager.failed_peers.pop();
+    if (peer.state == pstate::CONNECTED)
+      continue; // NOT SURE ABOUT THIS TO
     if (peer.fail_stats.failures >= bprotocol::constants::peer::max_reties) {
       manager.erase(peer);
       continue;
     }
-    if (manager.connect(peer)) {
-      ++current_inflight;
-      return true;
-    } else continue;
+    if ( initiate_connect(peer) == false )
+      continue;
+    return true;
   }
   return false;
 }
@@ -278,10 +301,15 @@ bool PeerConnectionManager::accept_peer_connection() {
     initialize_peer(peer, peer_addr, ip_version, psource::tcp_server);
   } else {
     peer.generation++;
+    peer.fail_stats.reset();   // NOT SURE ABOUT THIS
   }
+
   server_define_peer(peer, accept_return, &new_store);
-  peer.state = pstate::HANDSHAKE;
+  peer.listener.for_sock.set(accept_return, EV_READ);
   peer.listener.for_sock.start();
+  peer.listener.for_timer.set(bprotocol::constants::peer::connect_timeout);
+  peer.listener.for_timer.start();
+  peer.state = pstate::HANDSHAKE;
   return true;
 }
 
@@ -328,7 +356,7 @@ void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
       // some update on the socket regarding connection establishment.
       int error;
       socklen_t err_var_len = sizeof error;
-      int sock_opt_return = getsockopt(peer.tcp.socket, SOL_SOCKET, SO_ERROR, &error, &err_var_len);
+      int sock_opt_return = getsockopt(peer.tcp.get_socket(), SOL_SOCKET, SO_ERROR, &error, &err_var_len);
       if (sock_opt_return<0)
         ; // DANGEROUS: handle socket option retrieval failure later
       else if (error != 0) {
@@ -338,6 +366,7 @@ void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
       // if function makes it here, peer has connected sucessfully.
       if (peer.state == pstate::DISCONNECTED) {
         peer.generation++;
+        peer.fail_stats.reset();
       }
       peer.state = pstate::HANDSHAKE;
       manager.buffer_handshake(peer);
@@ -383,7 +412,7 @@ void PeerConnectionManager::initialize_peer(PeerConnection& peer, peer_key_t& ke
 }
 
 void PeerConnectionManager::server_define_peer(PeerConnection& peer, int socket, peer_sock_store_t* store) {
-  peer.tcp.socket = socket;
+  peer.tcp.__socket = socket;
   memcpy(&peer.store, store, server.store_len);
 }
 
@@ -396,7 +425,7 @@ void PeerConnectionManager::dispatch_connect(PeerConnection& peer) {
   // send connected peer to transfer manager for management here.
   release_peer(peer);
   connected_peers_count++;
-  connect_update new_connect { .peer=&peer, .socket=peer.tcp.socket, .id=peer.id, .generation=peer.generation };
+  connect_update new_connect { .peer=&peer, .socket=peer.tcp.get_socket(), .id=peer.id, .generation=peer.generation };
   (void)connects.queue.push(std::move(new_connect));
   connects.consumer.send();
 }
