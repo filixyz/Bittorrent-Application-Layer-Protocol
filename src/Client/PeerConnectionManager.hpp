@@ -16,6 +16,7 @@
 #include "TorrentFile.hpp"
 #include "PeerManagerTypes.hpp"
 #include "overwritable_cache.hpp"
+#include "bittorrent_messages.hpp"
 
 class pmestablisher_t {
     static constexpr std::size_t handlers_count {3};
@@ -23,8 +24,10 @@ class pmestablisher_t {
   private:
     PeerConnectionManager& manager;
     spot_t current {discovered};
-    std::array<bool, 3> empties {false};
+    std::array<bool, handlers_count> empties {false};
     std::size_t current_inflight{0};
+    std::size_t connected_bittorrent_peers_count{0};
+    bool establishing {false};
     ev::async daemon;
 
     bool discovered_peer_handler();
@@ -36,21 +39,17 @@ class pmestablisher_t {
 
   public:
     pmestablisher_t(PeerConnectionManager& __manager);
+    std::size_t get_current_inflight();
+    bool has_met_connection_qouta();
     void send_notification();
     void single_resolve_notification();
-    std::size_t get_current_inflight();
+    void increment_connected_bittorrent_peers();
+    void decrement_connected_bittorrent_peers();
 };
 
-class PeerConnectionManager {
-  friend class pmestablisher_t;
-  template <typename Key>
-  using peer_storage_t = std::unordered_map< Key, PeerConnection, peer_manager_hashers>;
+class PeerConnectionManager { friend class pmestablisher_t;
+  template <typename Key> using peer_storage_t = std::unordered_map< Key, PeerConnection, peer_manager_hashers>;
 private:
-  // tells if peers from discovered queue are still actively
-  // being tried for connection establishment
-  // switch it turned on when discovered populated
-  // and turned off when discovered is empty
-  bool establishing {false}; // actively establishing connections
   peer_id_gen get_id{};
   ev::dynamic_loop event_loop;
   ev::io server_socket_watcher;
@@ -59,15 +58,15 @@ private:
   pconnection_queue& connects;
   pdisconnection_queue& disconnects;
   pdiscovery_queue_ipv4& discovered;
-
+  const bittorrent_messages::handshake_t handshake;
+  pmestablisher_t establisher;
   tcp_server_context server;
+
   peer_storage_t<ipv4_peer_address> ipv4_peers{};
   peer_storage_t<ipv6_peer_address> ipv6_peers{};
   overwritable_cache<ipv4_peer_address, 100> ipv4_discovered_cache;
   std::queue<PeerConnection*> failed_peers;
   std::unordered_map<peer_id_t, PeerConnection*, peer_manager_hashers> peer_ids; // for deduplication after handshake.
-  std::size_t connected_peers_count{0};
-  pmestablisher_t establisher;
 
   void ipv6_default_server_sockstore();
   void ipv4_default_server_sockstore();
@@ -82,6 +81,7 @@ private:
   int  initialize_libev();
   void initialize_server_socket();
   void initialize_manager_watchers();
+  bittorrent_messages::handshake_t compute_handshake();
 
   void initialize_peer(PeerConnection&, peer_key_t&, pipv, psource);
   void server_define_peer(PeerConnection&, int, peer_sock_store_t*);
@@ -93,12 +93,16 @@ private:
   bool connect(PeerConnection&);
   void erase(PeerConnection&);
 
+  void handle_peer_failure(PeerConnection&);
+  void handle_peer_establisher_interruption(PeerConnection&);
+  void handle_peer_application_level_handshake(PeerConnection&, int event);
+  void handle_peer_transport_level_initiations(PeerConnection&, int event);
+  bool peer_transport_level_connected(PeerConnection&);
+
   void static peer_socket_callback(ev::io&, int);
   void static peer_timer_callback(ev::timer&, int);
   void drain_discovered();
   void drain_disconnected();
-  inline void initiate_new_connection();
-  inline void initiate_connection();
 
 public:
   PeerConnectionManager(TorrentFile&, pconnection_queue&, pdisconnection_queue&, pdiscovery_queue_ipv4&);

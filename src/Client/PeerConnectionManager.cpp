@@ -14,6 +14,7 @@
 #include "PeerConnectionManager.hpp"
 #include "PeerManagerTypes.hpp"
 #include "ThreadMessageTypes.hpp"
+#include "bittorrent_messages.hpp"
 
 void PeerConnectionManager::ipv6_default_server_sockstore() {
   std::memset(&server.store, 0, sizeof(sockaddr_in));
@@ -38,12 +39,23 @@ void PeerConnectionManager::initialize_manager_watchers() {
 
 }
 
+bittorrent_messages::handshake_t PeerConnectionManager::compute_handshake() {
+  bittorrent_messages::handshake_t handshake {};
+  std::size_t offset = 0;
+  std::memcpy(&handshake[offset], &bittorrent_messages::protocol_string_length, 1);     offset +=  1;
+  std::memcpy(&handshake[offset], &bittorrent_messages::protocol_string, 19);           offset += 19;
+  std::memcpy(&handshake[offset], bprotocol::constants::reserved_bytes.data(), 8);      offset +=  8;
+  std::memcpy(&handshake[offset], torrent.get_info_hash_bytes().data(), 20);            offset += 20;
+  std::memcpy(&handshake[offset], bprotocol::constants::client_id.data(), 20);          offset += 20;
+  return handshake;
+};
+
 void PeerConnectionManager::drain_discovered() {
   ipv4_peer_address addr;
   while (discovered.queue.pop(addr)) {
     ipv4_discovered_cache.push(std::move(addr));
   }
-  if (establishing) return;
+  if (establisher.has_met_connection_qouta()) return;
   establisher.send_notification();
 }
 
@@ -101,7 +113,6 @@ bool pmestablisher_t::initiate_connect(PeerConnection& peer) {
     ++current_inflight;
     return true;
   }
-  manager.erase(peer);
   return false;
 }
 
@@ -115,8 +126,10 @@ bool pmestablisher_t::discovered_peer_handler() {
     auto& peer = peer_->second;
     manager.initialize_peer(peer, peer_key, pipv::ipv4, psource::tracker);
     peer.state = pstate::DISCOVERED;
-    if ( initiate_connect(peer) == false )
+    if ( initiate_connect(peer) == false ) {
+      manager.erase(peer);
       continue;
+    }
     return true;
   }
   return false;
@@ -126,21 +139,23 @@ bool pmestablisher_t::disconnected_peer_handler() {
   disconnect_update disconnected;
   while ( manager.disconnects.queue.pop(disconnected)==true ) {
     auto& peer = *const_cast<PeerConnection*>(disconnected.peer);
-    if (peer.generation != disconnected.generation) {
     // This is incase a peer from the tcp_server disconnects and reconnects back quicker
     // Than this peer disconncted update was invoked meaning this disconnect update is stale
     // and most likely now the peer now is connected
+    if (peer.generation != disconnected.generation) {
       continue;
     }
     peer.state = pstate::DISCONNECTED;
-    --manager.connected_peers_count;
+    decrement_connected_bittorrent_peers();
     if (peer.tcp.get_errno() == PEER_SHUTDOWN || peer.source == psource::tcp_server) {
       manager.erase(peer);
       continue;
     }
     peer.fail_stats.failures++;
-    if ( initiate_connect(peer) == false )
+    if ( initiate_connect(peer) == false ) {
+      manager.erase(peer);
       continue;
+    }
     return true;
   }
   return false;
@@ -150,14 +165,16 @@ bool pmestablisher_t::failed_peer_handler() {
   while ( manager.failed_peers.empty()==false ) {
     auto& peer = *manager.failed_peers.front();
     manager.failed_peers.pop();
-    if (peer.state == pstate::CONNECTED)
-      continue; // NOT SURE ABOUT THIS TO
+    if (peer.state != pstate::FAILED)
+      continue;
     if (peer.fail_stats.failures >= bprotocol::constants::peer::max_reties) {
       manager.erase(peer);
       continue;
     }
-    if ( initiate_connect(peer) == false )
+    if ( initiate_connect(peer) == false ) {
+      manager.erase(peer);
       continue;
+    }
     return true;
   }
   return false;
@@ -192,13 +209,31 @@ void pmestablisher_t::send_notification(){
   daemon.send();
 }
 
-void pmestablisher_t::single_resolve_notification(){
+void pmestablisher_t::single_resolve_notification() {
   --current_inflight;
   send_notification();
 }
 
 std::size_t pmestablisher_t::get_current_inflight() {
   return current_inflight;
+}
+
+bool pmestablisher_t::has_met_connection_qouta() {
+  return establishing;
+}
+
+void pmestablisher_t::increment_connected_bittorrent_peers() {
+  connected_bittorrent_peers_count++;
+  if (connected_bittorrent_peers_count >= bprotocol::constants::healthy_peer_count)
+    establishing = false;
+}
+
+void pmestablisher_t::decrement_connected_bittorrent_peers() {
+  if (connected_bittorrent_peers_count == 0)
+    return;
+  connected_bittorrent_peers_count--;
+  if (connected_bittorrent_peers_count < bprotocol::constants::healthy_peer_count)
+    establishing = true;
 }
 
 void PeerConnectionManager::initialize_server_socket() {
@@ -245,7 +280,7 @@ int PeerConnectionManager::initialize_libev() {
 }
 
 PeerConnectionManager::PeerConnectionManager(TorrentFile& a, pconnection_queue& b, pdisconnection_queue& c ,pdiscovery_queue_ipv4& d)
-  :event_loop(initialize_libev()), torrent(a), connects(b), disconnects(c), discovered(d), establisher(*this) {
+  :event_loop(initialize_libev()), torrent(a), connects(b), disconnects(c), discovered(d), handshake(compute_handshake()), establisher(*this) {
   ev_set_userdata(event_loop.raw_loop, this);
   initialize_server_socket();
   initialize_manager_watchers();
@@ -314,73 +349,168 @@ bool PeerConnectionManager::accept_peer_connection() {
 }
 
 
-void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
-  PeerConnectionManager& manager = *static_cast<PeerConnectionManager*>(ev_userdata(sw.loop.raw_loop));
-  PeerConnection& peer = *static_cast<PeerConnection*>(sw.data);
-  if (event & ev::READ) {
-    if (peer.state == pstate::DISCOVERED) {
-    }
+void PeerConnectionManager::handle_peer_failure(PeerConnection& peer) {
 
-    if (peer.state == pstate::HANDSHAKE) {
-      auto [recvd, pbuffer_full] = peer.recv();
-      if (!recvd) return;
-      if ( manager.parse_handshake(peer) == 1 ) {
-        if (peer.source == psource::tcp_server) {
-          manager.buffer_handshake(peer);
-          auto [sent, pbuffer_empty] = peer.send();
-          if (!sent) return;
-        }
-        peer.state = pstate::CONNECTED;
-        manager.dispatch_connect(peer);
-        manager.establisher.single_resolve_notification();
-        return;
+}
+void PeerConnectionManager::handle_peer_establisher_interruption(PeerConnection& peer) {
+
+}
+
+bool PeerConnectionManager::peer_transport_level_connected(PeerConnection& peer) {
+  int error;
+  socklen_t err_var_len = sizeof error;
+
+  int sock_opt_return =
+    getsockopt(peer.tcp.get_socket(), SOL_SOCKET, SO_ERROR, &error, &err_var_len);
+
+  if (sock_opt_return<0)
+    assert(false && "getsockopt failed");
+  else if (error != 0) {
+    return false;
+  }
+  return true;
+}
+
+void PeerConnectionManager::handle_peer_application_level_handshake(PeerConnection& peer, int event) {
+  // handle partial handshake sends
+  if (event & EV_WRITE) {
+    auto [transport_ok, buffer_exhausted, sent_bytes] = peer.send_messages();
+    if (transport_ok == false) {
+      handle_peer_failure(peer);
+      return;
+    }
+    if (buffer_exhausted) {
+      if (peer.source == psource::tracker) {
+        peer.listener.for_sock.stop();
+        peer.listener.for_sock.set(ev::READ);
+        peer.listener.for_sock.start();
       }
+      if (peer.source == psource::tcp_server) {
+        peer.state = pstate::CONNECTED;
+        dispatch_connect(peer);
+        establisher.increment_connected_bittorrent_peers();
+        establisher.single_resolve_notification();
+      }
+    }
+    return;
+  }
+  // recieve handshake from connected peer
+  if (event & EV_READ) {
+
+    auto [transport_ok, buffer_full, recvd_bytes] = peer.recv_messages();
+
+    if (transport_ok  == false) {
+      handle_peer_failure(peer);
       return;
     }
 
-    if (peer.state == pstate::DISCONNECTED) {
+    auto handshake_decode = bittorrent_messages::handshake::decode(peer.recv_buffer, torrent.get_info_hash_bytes());
+    if (handshake_decode.complete == false)
+      return;
+
+    if ( handshake_decode.valid ) {
+      if (peer.source == psource::tracker) {
+        // do nothing here coalesce to the end of this
+        // coalesce to peer dispatch
+      }
+      if (peer.source == psource::tcp_server) {
+
+        assert(peer.send_buffer.empty());
+        peer.outgoing_frame_cursor.reset();
+        auto [encode_completed] =
+          bittorrent_messages::handshake::encode(handshake, peer.send_buffer, peer.outgoing_frame_cursor);
+        auto [transport_ok, buffer_exhausted, sent_bytes] = peer.send_messages();
+        assert ( encode_completed );
+
+        if (transport_ok == false) {
+          handle_peer_failure(peer);
+          return;
+        }
+        if (buffer_exhausted == false) {
+          peer.listener.stop();
+          peer.listener.for_sock.set(ev::WRITE);
+          peer.listener.for_timer.start();
+          return;
+        }
+
+      }
+      // peer dispatch:
+      peer.state = pstate::CONNECTED;
+      dispatch_connect(peer);
+      establisher.increment_connected_bittorrent_peers();
+      establisher.single_resolve_notification();
+      return;
     }
+    return;
+  }
+}
+
+void PeerConnectionManager::handle_peer_transport_level_initiations(PeerConnection& peer, int event) {
+  if (event & ev::WRITE)
+  {
+    if (peer_transport_level_connected(peer) == false) {
+      erase(peer);
+      return;
+    }
+
+    bool peer_not_just_discovered =
+      peer.state == pstate::DISCONNECTED || peer.state == pstate::FAILED;
+
+    if ( peer_not_just_discovered ) {
+      peer.generation++;
+      peer.fail_stats.reset();
+    }
+
+    peer.state = pstate::HANDSHAKE;
+    peer.listener.stop();
+
+    assert( peer.send_buffer.empty() );
+
+    peer.outgoing_frame_cursor.reset();  // reset cursor for new frame
+    auto [encode_completed] = bittorrent_messages::handshake::encode( handshake, peer.send_buffer, peer.outgoing_frame_cursor );
+    assert( encode_completed );
+
+    auto [transport_ok, buffer_exhausted, sent_bytes] = peer.send_messages();
+
+    if ( transport_ok ) {
+      peer.listener.for_sock.set( buffer_exhausted ? ev::READ : ev::WRITE );
+      peer.listener.for_sock.set(bprotocol::constants::peer::connect_timeout);
+      peer.listener.start();
+    } else {
+      handle_peer_failure(peer);
+    }
+
+    return;
   }
 
-  if (event & ev::WRITE) {
-    if (peer.state == pstate::HANDSHAKE) {
-      // handle partial handshake sends
-      auto [sent, pbuffer_empty] = peer.send();
-      if (!sent) return;
-      return;
-    }
+  if (event & ev::READ) {
+    // not needed. for transport level initiations
+  }
+}
 
-    if (peer.state == pstate::DISCOVERED || peer.state == pstate::DISCONNECTED) {
-      // This means peer was just discovered and the client of peermanager
-      // just initiated a non block connect, so we should be expecting a
-      // some update on the socket regarding connection establishment.
-      int error;
-      socklen_t err_var_len = sizeof error;
-      int sock_opt_return = getsockopt(peer.tcp.get_socket(), SOL_SOCKET, SO_ERROR, &error, &err_var_len);
-      if (sock_opt_return<0)
-        ; // DANGEROUS: handle socket option retrieval failure later
-      else if (error != 0) {
-        // peer.tcp.handle_errno(error);
-        return;
-      }
-      // if function makes it here, peer has connected sucessfully.
-      if (peer.state == pstate::DISCONNECTED) {
-        peer.generation++;
-        peer.fail_stats.reset();
-      }
-      peer.state = pstate::HANDSHAKE;
-      manager.buffer_handshake(peer);
-      auto [sent, pbuffer_empty] = peer.send();
-      if (!sent) return;
-    }
+void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
+  auto& peer =
+    *static_cast<PeerConnection*> (sw.data);
+  auto& manager =
+    *static_cast<PeerConnectionManager*> (ev_userdata(sw.loop.raw_loop));
 
-    if (peer.state == pstate::DISCONNECTED) {
+  assert(peer.state != pstate::CONNECTED);
 
-    }
+  if (manager.establisher.has_met_connection_qouta()) {
+    manager.handle_peer_establisher_interruption(peer);                      return;
   }
 
   if (event & ev::ERROR) {
+    manager.handle_peer_failure(peer);                                       return;
+  }
 
+  switch (peer.state) {
+    case pstate::DISCOVERED: case pstate::DISCONNECTED: case pstate::FAILED:
+      manager.handle_peer_transport_level_initiations(peer, event);          return;
+    case pstate::HANDSHAKE:
+      manager.handle_peer_application_level_handshake(peer, event);          return;
+    case pstate::null: default:
+      manager.erase(peer);                                                   return;
   }
 }
 
@@ -424,7 +554,6 @@ void PeerConnectionManager::release_peer(PeerConnection& peer) {
 void PeerConnectionManager::dispatch_connect(PeerConnection& peer) {
   // send connected peer to transfer manager for management here.
   release_peer(peer);
-  connected_peers_count++;
   connect_update new_connect { .peer=&peer, .socket=peer.tcp.get_socket(), .id=peer.id, .generation=peer.generation };
   (void)connects.queue.push(std::move(new_connect));
   connects.consumer.send();
@@ -433,7 +562,7 @@ void PeerConnectionManager::dispatch_connect(PeerConnection& peer) {
 void PeerConnectionManager::server_socket_callback(ev::io& server, int event){
   (void)event;(void)server;
   bool pending_accepts = true;
-  while (connected_peers_count<bprotocol::constants::healthy_peer_count && pending_accepts)
+  while (establisher.has_met_connection_qouta() == false && pending_accepts)
      pending_accepts = accept_peer_connection();
 }
 

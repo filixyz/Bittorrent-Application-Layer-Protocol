@@ -145,21 +145,30 @@ peer_nonblock_tcp& peer_nonblock_tcp::operator=(peer_nonblock_tcp&& other) noexc
   return *this;
 }
 
-transact PeerConnection::send() {
+void peer_watchers::stop() {
+  for_sock.stop();
+  for_timer.stop();
+}
+void peer_watchers::start() {
+  for_sock.start();
+  for_timer.start();
+}
+
+send_transact PeerConnection::send_messages() {
   return tcp.send(send_buffer);
 }
 
-transact PeerConnection::recv() {
+recv_transact PeerConnection::recv_messages() {
   return tcp.recv(recv_buffer);
 }
 
 PeerConnection PeerSession::dummypeer{};
 
-transact PeerSession::send() {
+send_transact PeerSession::send_messages() {
   return tcp.send(send_buffer);
 }
 
-transact PeerSession::recv() {
+recv_transact PeerSession::recv_messages() {
   return tcp.recv(recv_buffer);
 }
 

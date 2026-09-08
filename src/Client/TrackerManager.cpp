@@ -1,6 +1,7 @@
 #include "TrackerManager.hpp"
 #include "Constants.hpp"
 #include "HTTPHandler.hpp"
+#include "Hasher.hpp"
 #include "PeerManager.hpp"
 #include <array>
 #include <cassert>
@@ -10,6 +11,7 @@
 #include <curl/multi.h>
 #include <ev++.h>
 #include <string>
+#include <string_view>
 #include <sys/time.h>
 #include <unistd.h>
 #include <utility>
@@ -84,7 +86,7 @@ void TrackerManager::populate_manager_space() {
 }
 
 void TrackerManager::initialize_info_hash_byte() {
-  info_hash_byte = torrent.get_info_hash_bytes();
+  info_hash_byte = Hasher::byte_stringify_hash(torrent.get_info_hash_bytes());
 }
 
 void TrackerManager::initialize_tracker_context() {
@@ -124,10 +126,11 @@ std::string TrackerManager::get_request_params() const
     return std::string(key).append(1, '=').append(value);
   };
   std::string info_hash_byte_escaped_copy = info_hash_byte;
+  auto& client_id = bprotocol::constants::client_id;
   HTTPHandler::escape_byte_string(info_hash_byte_escaped_copy);
   std::array<std::string, 8> params{
     make_param("info_hash", info_hash_byte_escaped_copy),
-    make_param("peer_id", bprotocol::constants::client_id),
+    make_param("peer_id", std::string_view(client_id.data(), client_id.size())),
     make_param("port", std::to_string(listening_port)),
     make_param("uploaded", std::to_string(tracker_context.uploaded)),
     make_param("downloaded", std::to_string(tracker_context.downloaded)),

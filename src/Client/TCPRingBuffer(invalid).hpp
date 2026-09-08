@@ -1,27 +1,36 @@
 #pragma once
 #include "Constants.hpp"
 #include <array>
+#include <bit>
+#include <cstddef>
 #include <cstdint>
 #include <sys/uio.h>
 
-// .first holds actual prepare tuple,
-// .second tells if I/0 is possible with buffer
+// .iovec holds actual prepare tuple,
+// .sucessful tells if I/0 is possible with buffer
+// .total_prepared() gives the total bytes prepared for I0
 struct prepare_t {
-  std::pair<iovec[2], std::size_t> iovec;
-  bool buffered;
+  // .first is the iovec array,
+  // .second is the arrays active size
+  std::pair<std::array<iovec, 2>, std::size_t> iovec {};
+  bool sucessful;
+  std::size_t prepared_bytes() {
+    return iovec.first[0].iov_len + iovec.first[1].iov_len;
+  }
 };
 
 template <std::size_t N> class tcp_buffer {
+  static_assert(N!=0, "tcp_buffer size cannot be zero");
   enum ost { R, W };
   ost prev_action = R;
   std::size_t read{0}, write{0};
-  std::array<std::uint8_t, (std::uint64_t(1)<<N ) > buffer;
-  bool empty();
-  bool full();
+  std::array<std::uint8_t, N> buffer;
   std::size_t mask(std::size_t);
   std::size_t size();
 
 public:
+  bool empty();
+  bool full();
   tcp_buffer() = default;
   prepare_t prepare_read();
   prepare_t prepare_write();
@@ -33,7 +42,11 @@ public:
 };
 
 template <std::size_t N> std::size_t tcp_buffer<N>::mask(std::size_t idx) {
-  return  idx & (buffer.size()-1);
+  if constexpr (std::has_single_bit(N)) {
+    return idx & (N-1);
+  } else {
+    return idx % N;
+  }
 }
 
 template <std::size_t N> bool tcp_buffer<N>::empty() {
@@ -56,9 +69,9 @@ template <std::size_t N> prepare_t tcp_buffer<N>::prepare_read() {
     prepare.iovec.first[0].iov_len = available;
     prepare.iovec.second = 1;
     if (available==0)
-      prepare.buffered = false;
+      prepare.sucessful = false;
     else
-      prepare.buffered = true;
+      prepare.sucessful = true;
     return prepare;
   }
   prepare.iovec.first[0].iov_base = &buffer[read];
@@ -66,7 +79,7 @@ template <std::size_t N> prepare_t tcp_buffer<N>::prepare_read() {
   prepare.iovec.first[1].iov_base = &buffer[0];
   prepare.iovec.first[1].iov_len = write;
   prepare.iovec.second = 2;
-  prepare.buffered = true;
+  prepare.sucessful = true;
   return prepare;
 }
 
@@ -78,9 +91,9 @@ template <std::size_t N> prepare_t tcp_buffer<N>::prepare_write() {
     prepare.iovec.first[0].iov_len = available;
     prepare.iovec.second=1;
     if (available==0)
-      prepare.buffered = false;
+      prepare.sucessful = false;
     else
-      prepare.buffered = true;
+      prepare.sucessful = true;
     return prepare;
   }
   prepare.iovec.first[0].iov_base = &buffer[write];
@@ -88,16 +101,18 @@ template <std::size_t N> prepare_t tcp_buffer<N>::prepare_write() {
   prepare.iovec.first[1].iov_base = &buffer[0];
   prepare.iovec.first[1].iov_len = read;
   prepare.iovec.second = 2;
-  prepare.buffered = true;
+  prepare.sucessful = true;
   return prepare;
 }
 
 template <std::size_t N> void tcp_buffer<N>::commit_read(std::size_t bytes) {
+  if (bytes == 0) return;
   read = mask(read+bytes);
   prev_action=R;
 }
 
 template <std::size_t N> void tcp_buffer<N>::commit_write(std::size_t bytes) {
+  if (bytes == 0) return;
   write = mask(write+bytes);
   prev_action=W;
 }

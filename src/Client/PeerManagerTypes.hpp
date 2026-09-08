@@ -9,8 +9,9 @@
 #include <bitset>
 #include <ev++.h>
 #include "DynamicBitset.hpp"
-#include "TCPRingBuffer.hpp"
+#include "io_ring_buffer.hpp"
 #include "ThreadMessageTypes.hpp"
+#include "bittorrent_messages.hpp"
 #define XXH_INLINE_ALL
 #include "xxhash.h"
 //Unix Networking Headers here
@@ -30,9 +31,16 @@ struct PeerConnection;
 struct PeerSession;
 struct peer_nonblock_tcp;
 
-struct transact {
-  bool success;   // if true peer is still connected, otherwise false
-  bool bufferred; // if true IO happened with application layer buffer, otherwise false.
+struct send_transact {
+  bool transport_ok;
+  bool buffer_empty;          // THis tells caller that something was removed from buffer
+  std::size_t sent_bytes;    // THis is the size of the something
+};
+
+struct recv_transact {
+  bool transport_ok;
+  bool buffer_full;           // This tells caller that something was added to buffer
+  std::size_t recvd_bytes;     // This is the size of the something
 };
 
 struct tcp_server_context
@@ -57,27 +65,27 @@ private:
   msghdr ephemereal_hdr{};
 public:
   template<std::size_t N>
-  transact send(tcp_buffer<N>& buffer) {
+  send_transact send(io_ring_buffer<N>& buffer) {
     prepare_t prepare = buffer.prepare_read();
-    ephemereal_hdr.msg_iov = prepare.iovec.first;
-    ephemereal_hdr.msg_iovlen = prepare.iovec.second;
+    ephemereal_hdr.msg_iov = prepare.iovec_array.data();
+    ephemereal_hdr.msg_iovlen = prepare.prepared_iovecs;
 
     ssize_t send_return; do {
       send_return = sendmsg(__socket, &ephemereal_hdr, MSG_NOSIGNAL);
     } while (send_return<0 && errno == EINTR);
 
     if (send_return<0)
-      return {handle_send_perrno(errno), prepare.buffered};
+      return {handle_send_perrno(errno), buffer.empty(), 0};
     perrno = -1;
     buffer.commit_read(send_return);
-    return {true, prepare.buffered};
+    return {true, buffer.empty(), static_cast<std::size_t>(send_return)};
   }
 
   template<std::size_t N>
-  transact recv(tcp_buffer<N>& buffer) {
+  recv_transact recv(io_ring_buffer<N>& buffer) {
     prepare_t prepare = buffer.prepare_write();
-    ephemereal_hdr.msg_iov = prepare.iovec.first;
-    ephemereal_hdr.msg_iovlen = prepare.iovec.second;
+    ephemereal_hdr.msg_iov = prepare.iovec_array.data();
+    ephemereal_hdr.msg_iovlen = prepare.prepared_iovecs;
 
     ssize_t recv_return; do {
       recv_return = recvmsg(__socket, &ephemereal_hdr, 0);
@@ -85,13 +93,13 @@ public:
 
     if (recv_return == 0) {
       perrno = PEER_SHUTDOWN;
-      return {false, prepare.buffered};
+      return {false, buffer.full(), 0};
     } else if (recv_return<0) {
-      return {handle_recv_perrno(errno), prepare.buffered};
+      return {handle_recv_perrno(errno), buffer.full(), 0};
     }
     perrno = -1;
     buffer.commit_write(recv_return);
-    return {true, prepare.buffered};
+    return {true, buffer.full(), static_cast<std::size_t>(recv_return)};
   }
   [[nodiscard]] bool adopt_socket(int);
   int  get_socket();
@@ -114,7 +122,7 @@ private:
   friend PeerConnectionManager;
 };
 
-enum class pstate:  std::uint8_t  {null, DISCOVERED, HANDSHAKE, CONNECTED, DISCONNECTED};
+enum class pstate:  std::uint8_t  {null, DISCOVERED, HANDSHAKE, CONNECTED, DISCONNECTED, FAILED};
 enum class psource: std::uint8_t  {null, tracker, tcp_server};
 enum class pipv:    std::uint8_t  {null, ipv4, ipv6, ipv4maskedv6};
 using peer_id_t                =  std::array<std::byte, 20>;
@@ -130,7 +138,18 @@ struct pc_fail_stat{
 struct peer_watchers {
   ev::io for_sock;
   ev::timer for_timer;
+  void stop();
+  void start();
 };
+
+struct tranport_frame_cursors {
+  // current message_type
+  bittorrent_messages::frame_cursor incoming;
+};
+
+
+using hanshake_buffer = io_ring_buffer<68>;
+using session_buffer  = io_ring_buffer< uint8_t(1)<<bprotocol::constants::tcp_bufexp >;
 
 struct PeerConnection {
   peer_nonblock_tcp tcp;
@@ -144,13 +163,14 @@ struct PeerConnection {
   pstate state {pstate::null};
   psource source {psource::null};
   pipv IPv {pipv::null};
+  bittorrent_messages::frame_cursor outgoing_frame_cursor;
 
   std::size_t id;
   std::size_t generation{0};
   pc_fail_stat fail_stats;
 
-  transact recv();
-  transact send();
+  recv_transact recv_messages();
+  send_transact send_messages();
 };
 
 struct connect_update {
@@ -183,8 +203,8 @@ public:
   void set_endpoint(const connect_update);
   bool is_dummy();
   disconnect_update endpoint_disconnected();
-  transact send();
-  transact recv();
+  send_transact send_messages();
+  recv_transact recv_messages();
 private:
   const  PeerConnection* peer {&dummypeer};
   static PeerConnection  dummypeer;
