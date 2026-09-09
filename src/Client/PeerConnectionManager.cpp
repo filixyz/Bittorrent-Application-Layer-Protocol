@@ -72,6 +72,11 @@ void PeerConnectionManager::erase(PeerConnection& peer) {
    assert(false && "Peer with no ipv found in connection_manager erase function");
 }
 
+
+// initates tcp connect() on peer, alloactes tcp fd and connect() to it
+// upon failure on allocating socket it returns, upon failure on connect() to socket it closes the fd
+// on success sets listeners for peer, handles immediate connect scenario (maybe peer is on the same host
+// different port) and returns true
 bool PeerConnectionManager::connect(PeerConnection& peer) {
   if (peer.source != psource::tracker) {
     assert (
@@ -84,8 +89,10 @@ bool PeerConnectionManager::connect(PeerConnection& peer) {
   if ( peer.tcp.open_socket(sock_addr->sa_family) == false )
     return false;
   pconnect_return_t resolve = peer.tcp.pconnect(sock_addr, sock_addr->sa_family);
-  if ( resolve == failed )
+  if ( resolve == failed ) {
+    peer.tcp.close_socket();
     return false;
+  }
 
   peer.listener.for_sock
     .set(peer.tcp.get_socket(), EV_WRITE);
@@ -108,6 +115,8 @@ bool PeerConnectionManager::connect(PeerConnection& peer) {
   return true;
 }
 
+// upon successful trsnport level connect() inititaion number of peers in flight is incremented
+// true returned; otherwise false
 bool pmestablisher_t::initiate_connect(PeerConnection& peer) {
   if (manager.connect(peer)) {
     ++current_inflight;
@@ -116,11 +125,17 @@ bool pmestablisher_t::initiate_connect(PeerConnection& peer) {
   return false;
 }
 
+
+// establisher: Handlers should never close sockets.
+// manager::connect() closes socket upon notice of immediate failure
+// manager::handle_failure() also closes socket upon transient notice of peer transport failure
+// tranfermanger also close socket of peers relayed to it upon it's immediate notice of peer transport failure
+
 bool pmestablisher_t::discovered_peer_handler() {
   ipv4_peer_address addr;
   while ( manager.ipv4_discovered_cache.fresh_pop(addr)==true ) {
     auto [peer_, inserted] = manager.ipv4_peers.try_emplace(addr);
-    if ( !inserted )
+    if ( inserted )
       continue;
     peer_key_t peer_key{ .ipv4=addr };
     auto& peer = peer_->second;
@@ -161,16 +176,15 @@ bool pmestablisher_t::disconnected_peer_handler() {
   return false;
 }
 
+// peer can only reach her if handled with manager.handle_peer_failure()
 bool pmestablisher_t::failed_peer_handler() {
   while ( manager.failed_peers.empty()==false ) {
     auto& peer = *manager.failed_peers.front();
     manager.failed_peers.pop();
-    if (peer.state != pstate::FAILED)
+
+    if (peer.state != pstate::FAILED) // discard stale cached failed peers
       continue;
-    if (peer.fail_stats.failures >= bprotocol::constants::peer::max_reties) {
-      manager.erase(peer);
-      continue;
-    }
+
     if ( initiate_connect(peer) == false ) {
       manager.erase(peer);
       continue;
@@ -350,8 +364,26 @@ bool PeerConnectionManager::accept_peer_connection() {
 
 
 void PeerConnectionManager::handle_peer_failure(PeerConnection& peer) {
-
+  peer.tcp.close_socket();
+  peer.state = pstate::FAILED;
+  peer.listener.stop();
+  peer.fail_stats.failures++;
+  if (peer.fail_stats.failures >= bprotocol::constants::peer::max_reties || peer.source == psource::tcp_server) {
+    erase(peer);
+    return;
+  }
+  peer.outgoing_frame_cursor.reset();
+  peer.recv_buffer.reset();
+  peer.send_buffer.reset();
+  failed_peers.push(&peer);
 }
+
+void PeerConnectionManager::peer_timer_callback(ev::timer& timer, int) {
+  PeerConnection& peer = * static_cast<PeerConnection*>(timer.data);
+  auto& manager = * static_cast<PeerConnectionManager*> (ev_userdata(timer.loop.raw_loop));
+  manager.handle_peer_failure(peer);
+}
+
 void PeerConnectionManager::handle_peer_establisher_interruption(PeerConnection& peer) {
 
 }
@@ -360,8 +392,7 @@ bool PeerConnectionManager::peer_transport_level_connected(PeerConnection& peer)
   int error;
   socklen_t err_var_len = sizeof error;
 
-  int sock_opt_return =
-    getsockopt(peer.tcp.get_socket(), SOL_SOCKET, SO_ERROR, &error, &err_var_len);
+  int sock_opt_return = getsockopt(peer.tcp.get_socket(), SOL_SOCKET, SO_ERROR, &error, &err_var_len);
 
   if (sock_opt_return<0)
     assert(false && "getsockopt failed");
@@ -449,7 +480,7 @@ void PeerConnectionManager::handle_peer_transport_level_initiations(PeerConnecti
   if (event & ev::WRITE)
   {
     if (peer_transport_level_connected(peer) == false) {
-      erase(peer);
+      handle_peer_failure(peer);
       return;
     }
 
@@ -547,8 +578,7 @@ void PeerConnectionManager::server_define_peer(PeerConnection& peer, int socket,
 }
 
 void PeerConnectionManager::release_peer(PeerConnection& peer) {
-  peer.listener.for_sock.stop();
-  peer.listener.for_timer.stop();
+  peer.listener.stop();
 }
 
 void PeerConnectionManager::dispatch_connect(PeerConnection& peer) {
