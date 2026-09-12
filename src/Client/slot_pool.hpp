@@ -26,11 +26,29 @@
 //
 // Implemented by yours truly, Felix
 
+
 template <typename T, std::size_t N> class slot_recycling_pool {
+public:
+
+  struct pool_slot {
+    T object;
+  public:
+    [[nodiscard]] std::size_t generation() const noexcept { return _generation; }
+    T* operator->() noexcept  { return &object; }
+    T& operator* () noexcept  { return  object; }
+  private:
+    std::size_t _generation{0};
+    friend class slot_recycling_pool<T, N>;
+  };
+
+
+private:
+
   static_assert(N != 0, "Size cannot be zero");
-  std::array<T, N> pool;
+  std::array<pool_slot, N> pool;
   std::vector<std::size_t> available_slots;
   std::bitset<N> occupied;
+
 public:
 
   ~slot_recycling_pool() = default;
@@ -46,8 +64,8 @@ public:
 public:
 
   struct acquire_t {
-    bool acquire_successful;
-    T* acquired;
+    bool acquisition_successful;
+    pool_slot* acquired; // dereference once, then use -> to reach T: (*acquired)->field  or  auto& slot = *acquired; slot->field;
   };
 
   [[nodiscard]] acquire_t acquire() noexcept {
@@ -57,15 +75,18 @@ public:
     const std::size_t slot = available_slots.back();
     available_slots.pop_back();
     occupied.set(slot);
-
     return { true, &pool[slot] };
   }
 
-  void release(T* obj) noexcept {
+  void release(pool_slot* obj) noexcept {
     std::ptrdiff_t slot = obj - pool.data();
+
     assert(static_cast<std::size_t>(slot)<N && slot>=0);
-    assert(occupied[slot]);
-    available_slots.push_back( static_cast<std::size_t>(slot) );
+    const std::size_t slot_index = static_cast<std::size_t>(slot);
+    assert(occupied[slot_index]);
+
+    ++pool[slot_index]._generation;
+    available_slots.push_back( slot_index );
     occupied.reset(slot);
   }
 
@@ -78,6 +99,5 @@ public:
   }
 
 };
-
 
 #endif

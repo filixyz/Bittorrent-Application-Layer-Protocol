@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <sys/types.h>
 #include <unistd.h>
-#include <utility>
 #include <bitset>
 #include <ev++.h>
 #include "DynamicBitset.hpp"
@@ -129,9 +128,8 @@ using peer_id_t                =  std::array<std::byte, 20>;
 using peer_key_t               =  union { ipv4_peer_address ipv4; ipv6_peer_address ipv6; };
 using peer_sock_store_t        =  union { sockaddr_in ipv4_store; sockaddr_in6 ipv6_store; };
 
-struct pc_fail_stat{
+struct peer_stats_t{
   std::size_t failures{0};
-  std::size_t retry_backoff = 15;//secs
   void reset();
 };
 
@@ -139,7 +137,6 @@ struct peer_watchers {
   ev::io for_sock;
   ev::timer for_timer;
   void stop();
-  void start();
 };
 
 struct tranport_frame_cursors {
@@ -148,26 +145,30 @@ struct tranport_frame_cursors {
 };
 
 
-using hanshake_buffer = io_ring_buffer<68>;
-using session_buffer  = io_ring_buffer< uint8_t(1)<<bprotocol::constants::tcp_bufexp >;
+using hanshake_buffer   = io_ring_buffer<68>;
+using session_buffer    = io_ring_buffer< uint8_t(1)<<bprotocol::constants::tcp_bufexp >;
+using timer_clbk_t      = void (*) (ev::timer&, int);
+using sock_clbk_t       = void (*) (ev::io&, int);
 
 struct PeerConnection {
+
   peer_nonblock_tcp tcp;
   peer_sock_store_t store{};
   hanshake_buffer recv_buffer{};
   hanshake_buffer send_buffer{};
   peer_watchers listener;
 
-  peer_key_t key{};
-  peer_id_t peer_id;
+  peer_key_t key {};
+  peer_id_t peer_id {};
   pstate state {pstate::null};
   psource source {psource::null};
   pipv IPv {pipv::null};
   bittorrent_messages::frame_cursor outgoing_frame_cursor;
+  peer_stats_t stats;
 
-  std::size_t id;
-  std::size_t generation{0};
-  pc_fail_stat fail_stats;
+  template <sock_clbk_t socket_callback, timer_clbk_t timer_callback>
+  void initialize_connection (peer_key_t&, pipv, psource, pstate, ev::dynamic_loop&);
+  void teardown_connection();
 
   recv_transact recv_messages();
   send_transact send_messages();
@@ -200,8 +201,9 @@ public:
   std::size_t down_rate{0};
   std::size_t upld_rate{0};
   DynamicBitset bitfield;
-  void set_endpoint(const connect_update);
+
   bool is_dummy();
+  void set_endpoint(const connect_update);
   disconnect_update endpoint_disconnected();
   send_transact send_messages();
   recv_transact recv_messages();
