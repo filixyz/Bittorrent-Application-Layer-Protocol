@@ -17,26 +17,28 @@
 #include "bittorrent_messages.hpp"
 
 void PeerConnectionManager::ipv6_default_server_sockstore() {
+  auto& server = outbound_connection_server.parameters;
   std::memset(&server.store, 0, sizeof(sockaddr_in));
   server.store.ipv6.sin6_family = AF_INET6;
   server.store_len = sizeof(sockaddr_in6);
 }
 
 void PeerConnectionManager::ipv4_default_server_sockstore() {
+  auto& server = outbound_connection_server.parameters;
   std::memset(&server.store, 0, sizeof(sockaddr_in6));
   server.store.ipv4.sin_family = AF_INET;
   server.store_len = sizeof(sockaddr_in);
 }
 
 void PeerConnectionManager::initialize_manager_watchers() {
-  server_socket_watcher.set(event_loop);
-  server_socket_watcher.set(server.socket, ev::READ);
-  server_socket_watcher.set<PeerConnectionManager, &PeerConnectionManager::server_socket_callback>(this);
+  auto& server = outbound_connection_server;
+  server.watcher.set(event_loop);
+  server.watcher.set(server.parameters.socket, ev::READ);
+  server.watcher.set<PeerConnectionManager, &PeerConnectionManager::server_socket_callback>(this);
   discovered.consumer.set(event_loop);
   discovered.consumer.set<PeerConnectionManager, &PeerConnectionManager::drain_discovered>(this);
   disconnects.consumer.set(event_loop);
   disconnects.consumer.set<PeerConnectionManager, &PeerConnectionManager::drain_disconnected>(this);
-
 }
 
 bittorrent_messages::handshake_t PeerConnectionManager::compute_handshake() {
@@ -55,13 +57,13 @@ void PeerConnectionManager::drain_discovered() {
   while (discovered.queue.pop(addr)) {
     ipv4_discovered_cache.push(std::move(addr));
   }
-  if (establisher.has_met_connection_qouta() or connection_pool.available() == 0)
+  if (statistics.has_met_connection_quota() or !connection_pool.available())
     return;
-  establisher.send_notification();
+  inbound_connection_scheduler.send_notification();
 }
 
 void PeerConnectionManager::drain_disconnected() {
-  establisher.send_notification();
+  inbound_connection_scheduler.send_notification();
 }
 
 void PeerConnectionManager::deregister_from_map(PeerConnection& peer) {
@@ -109,11 +111,14 @@ bool PeerConnectionManager::connect(PeerConnection& peer) {
 // NOTE TO SELF: delete this function and inline it where it's called.
 // upon successful trsnport level connect() inititaion number of peers in flight is incremented
 // true returned; otherwise false
-bool pmestablisher_t::initiate_connect(PeerConnection& peer) {
+bool inbound_scheduler_t::initiate_connect(PeerConnection& peer) {
+
+  assert(peer.source == psource::tracker);
   if (manager.connect(peer)) {
-    ++current_inflight;
+    manager.statistics.increment_inbound_inflight();
     return true;
   }
+
   return false;
 }
 
@@ -122,7 +127,7 @@ bool pmestablisher_t::initiate_connect(PeerConnection& peer) {
 // manager::handle_failure() also closes socket upon transient notice of peer transport failure
 // tranfermanger also close socket of peers relayed to it upon it's immediate notice of peer transport failure
 
-bool pmestablisher_t::discovered_peer_handler() {
+bool inbound_scheduler_t::discovered_peer_handler() {
 
   // guard connection pool from overgrowing
   // larger than it's boundary.
@@ -153,7 +158,7 @@ bool pmestablisher_t::discovered_peer_handler() {
   return false;
 }
 
-bool pmestablisher_t::disconnected_peer_handler() {
+bool inbound_scheduler_t::disconnected_peer_handler() {
   disconnect_update disconnected;
   while ( manager.disconnects.queue.pop(disconnected)==true ) {
     auto& peer = * const_cast<PeerConnection*>(disconnected.peer);
@@ -163,7 +168,7 @@ bool pmestablisher_t::disconnected_peer_handler() {
       continue;
     }
     peer.state = pstate::DISCONNECTED;
-    decrement_connected_bittorrent_peers();
+    manager.statistics.decrement_connected_bittorrent_peers();
     if (peer.tcp.get_errno() == PEER_SHUTDOWN || peer.source == psource::tcp_server) {
       manager.delete_peer_connection(peer);
       continue;
@@ -179,7 +184,7 @@ bool pmestablisher_t::disconnected_peer_handler() {
 }
 
 // peer can only reach her if handled with manager.handle_peer_failure()
-bool pmestablisher_t::failed_peer_handler() {
+bool inbound_scheduler_t::failed_peer_handler() {
 
   while ( manager.failed_peers.empty() == false ) {
     peer_failure_update failed_peer = manager.failed_peers.front();
@@ -197,13 +202,13 @@ bool pmestablisher_t::failed_peer_handler() {
 
 }
 
-void pmestablisher_t::plus_mask_current(std::size_t spot) {
+void inbound_scheduler_t::plus_mask_current(std::size_t spot) {
   current = (spot+1 == handlers_count) ? static_cast<spot_t>(0) : static_cast<spot_t>(spot+1);
 }
 
-void pmestablisher_t::round_robin_establisher_scheduler() {
+void inbound_scheduler_t::round_robin_establisher_scheduler() {
   // This is a load balancer.
-  for (; current_inflight < bprotocol::constants::max_inflight_conns; ) {
+  for (; manager.statistics.get_inbound_inflight() < bprotocol::constants::max_inbound_inflight; ) {
      std::size_t spot = static_cast<std::size_t>(current);
     if (current == discovered)
       empties[spot] = !discovered_peer_handler();
@@ -217,44 +222,59 @@ void pmestablisher_t::round_robin_establisher_scheduler() {
   }
 }
 
-pmestablisher_t::pmestablisher_t(PeerConnectionManager& __manager): manager(__manager) {
-  daemon.set<pmestablisher_t, &pmestablisher_t::round_robin_establisher_scheduler>(this);
+inbound_scheduler_t::inbound_scheduler_t(PeerConnectionManager& __manager): manager(__manager) {
+  daemon.set<inbound_scheduler_t, &inbound_scheduler_t::round_robin_establisher_scheduler>(this);
   daemon.set(manager.event_loop);
 }
 
-void pmestablisher_t::send_notification(){
+std::size_t connection_statistics_t::get_bittorrent_connected() {
+  return connected_bittorrent_peers;
+}
+
+void inbound_scheduler_t::send_notification(){
   daemon.send();
 }
 
-void pmestablisher_t::single_resolve_notification() {
-  --current_inflight;
-  send_notification();
+void connection_statistics_t::single_inbound_resolved() {
+  --inbound_inflight;
 }
 
-std::size_t pmestablisher_t::get_current_inflight() {
-  return current_inflight;
+void connection_statistics_t::single_outbound_resolved() {
+  --outbound_inflight;
 }
 
-bool pmestablisher_t::has_met_connection_qouta() {
-  return establishing;
+std::size_t connection_statistics_t::get_outbound_inflight() {
+  return outbound_inflight;
 }
 
-void pmestablisher_t::increment_connected_bittorrent_peers() {
-  connected_bittorrent_peers_count++;
-  if (connected_bittorrent_peers_count >= bprotocol::constants::healthy_peer_count)
-    establishing = false;
+std::size_t connection_statistics_t::get_inbound_inflight() {
+  return inbound_inflight;
 }
 
-void pmestablisher_t::decrement_connected_bittorrent_peers() {
-  if (connected_bittorrent_peers_count == 0)
+bool connection_statistics_t::has_met_connection_quota() {
+  if (connected_bittorrent_peers < bprotocol::constants::healthy_peer_count)
+    return false;
+  else
+    return true;
+}
+
+void connection_statistics_t::increment_outbound_inflight() {
+  ++outbound_inflight;
+}
+
+void connection_statistics_t::increment_connected_bittorrent_peers() {
+  connected_bittorrent_peers++;
+}
+
+void connection_statistics_t::decrement_connected_bittorrent_peers() {
+  if (connected_bittorrent_peers == 0)
     return;
-  connected_bittorrent_peers_count--;
-  if (connected_bittorrent_peers_count < bprotocol::constants::healthy_peer_count)
-    establishing = true;
+  connected_bittorrent_peers--;
 }
 
 void PeerConnectionManager::initialize_server_socket() {
   // create socket
+  auto& server = outbound_connection_server.parameters;
   sockaddr* sock_addr = reinterpret_cast<sockaddr*>( &server.store );
   ipv6_default_server_sockstore();
   server.socket = socket(AF_INET6, server.flags, server.trspt_proto);
@@ -297,16 +317,21 @@ int PeerConnectionManager::initialize_libev() {
 }
 
 PeerConnectionManager::PeerConnectionManager(TorrentFile& a, pconnection_queue& b, pdisconnection_queue& c ,pdiscovery_queue_ipv4& d)
-  :event_loop(initialize_libev()), torrent(a), connects(b), disconnects(c), discovered(d), handshake(compute_handshake()), establisher(*this) {
+  :event_loop(initialize_libev()), torrent(a)
+  , connects(b), disconnects(c), discovered(d), handshake(compute_handshake())
+  , inbound_connection_scheduler(*this)
+{
   ev_set_userdata(event_loop.raw_loop, this);
   initialize_server_socket();
   initialize_manager_watchers();
 }
 
-
 bool PeerConnectionManager::accept_peer_connection() {
+
   peer_sock_store_t new_store{};
   sockaddr* sock_addr = reinterpret_cast<sockaddr*>(&new_store);
+  auto& server = outbound_connection_server.parameters;
+
   int accept_return = accept4(server.socket, (sockaddr*)&new_store, &server.store_len, SOCK_NONBLOCK);
   if (accept_return<0)
     return handle_server_errno(errno);
@@ -317,6 +342,8 @@ bool PeerConnectionManager::accept_peer_connection() {
     close(accept_return);
     return false;
   }
+
+  statistics.increment_outbound_inflight();
 
   // extract peer id
   pipv ip_version = pipv::null;
@@ -390,8 +417,16 @@ bool PeerConnectionManager::accept_peer_connection() {
     // connection_pool.release(mapped_connection_slot);
 
     auto& old_peer = mapped_connection_slot->object;
-    if (old_peer.state != pstate::CONNECTED)
+    if (old_peer.state != pstate::CONNECTED) {
+
       old_peer.tcp.close_socket();
+      if (old_peer.source == psource::tcp_server)
+        statistics.single_outbound_resolved();
+      else {
+        statistics.single_inbound_resolved();
+        inbound_connection_scheduler.send_notification();
+      }
+    }
 
     delete_peer_connection(old_peer);
 
@@ -417,7 +452,16 @@ void PeerConnectionManager::handle_peer_failure(PeerConnection& peer) {
   peer.state = pstate::FAILED;
   peer.stats.failures++;
 
+  assert(peer.source != psource::null);
+
   peer.tcp.close_socket();
+  if (peer.source == psource::tcp_server)
+    statistics.single_outbound_resolved();
+  else {
+    statistics.single_inbound_resolved();
+    inbound_connection_scheduler.send_notification();
+  }
+
   if (peer.stats.failures >= bprotocol::constants::peer::max_reties || peer.source == psource::tcp_server) {
     delete_peer_connection(peer);
     return;
@@ -446,7 +490,6 @@ void PeerConnectionManager::peer_timer_callback(ev::timer& timer, int) {
   }
   // should coalesce to this when in another state, DISCOVERED, HANDSHAKE and DISCONNECTED.
   manager.handle_peer_failure(peer);
-
 }
 
 void PeerConnectionManager::delete_peer_connection(PeerConnection& peer) {
@@ -471,6 +514,7 @@ bool PeerConnectionManager::peer_transport_level_connected(PeerConnection& peer)
 }
 
 void PeerConnectionManager::handle_peer_application_level_handshake(PeerConnection& peer, int event) {
+
   // handle partial handshake sends
   if (event & EV_WRITE) {
     auto [transport_ok, buffer_exhausted, sent_bytes] = peer.send_messages();
@@ -484,76 +528,65 @@ void PeerConnectionManager::handle_peer_application_level_handshake(PeerConnecti
         arm_connection_watchers(peer, ev::READ, false);
       }
       if (peer.source == psource::tcp_server) {
-        peer.state = pstate::CONNECTED;
-        stop_connection_watchers(peer);
-        dispatch_connect(peer);
-        establisher.increment_connected_bittorrent_peers();
-        establisher.single_resolve_notification();
+        handle_peer_connection_and_dispatch(peer);
       }
     }
     return;
   }
+
   // recieve handshake from connected peer
   if (event & EV_READ) {
 
     auto [transport_ok, buffer_full, recvd_bytes] = peer.recv_messages();
 
-    if (transport_ok  == false) {
+    if ( !transport_ok ) {
       handle_peer_failure(peer);
       return;
     }
 
     auto handshake_decode = bittorrent_messages::handshake::decode(peer.recv_buffer, torrent.get_info_hash_bytes());
-    if (handshake_decode.complete == false)
+    if ( !handshake_decode.complete)
       return;
 
-    if ( handshake_decode.valid ) {
-      if (peer.source == psource::tracker) {
-        // do nothing here coalesce to the end of this
-        // coalesce to peer dispatch
-      }
-      if (peer.source == psource::tcp_server) {
-
-        assert(peer.send_buffer.empty());
-        peer.outgoing_frame_cursor.reset();
-        auto [encode_completed] =
-          bittorrent_messages::handshake::encode(handshake, peer.send_buffer, peer.outgoing_frame_cursor);
-        auto [transport_ok, buffer_exhausted, sent_bytes] = peer.send_messages();
-        assert ( encode_completed );
-
-        if (transport_ok == false) {
-          handle_peer_failure(peer);
-          return;
-        }
-        if (buffer_exhausted == false) {
-          stop_connection_watchers(peer);
-          arm_connection_watchers(peer, ev::WRITE, false);
-          return;
-        }
-
-      }
-      // peer dispatch:
-      peer.state = pstate::CONNECTED;
-      stop_connection_watchers(peer);
-      dispatch_connect(peer);
-      establisher.increment_connected_bittorrent_peers();
-      establisher.single_resolve_notification();
+    if ( !handshake_decode.valid )
       return;
+
+    if (peer.source == psource::tracker)
+      handle_peer_connection_and_dispatch(peer);
+
+    if (peer.source == psource::tcp_server) {
+
+      assert(peer.send_buffer.empty());
+      peer.outgoing_frame_cursor.reset();
+      auto [encode_completed] =
+        bittorrent_messages::handshake::encode(handshake, peer.send_buffer, peer.outgoing_frame_cursor);
+      auto [transport_ok, buffer_exhausted, sent_bytes] = peer.send_messages();
+      assert ( encode_completed );
+
+      if ( !transport_ok) {
+        handle_peer_failure(peer);
+        return;
+      }
+      if ( !buffer_exhausted ) {
+        stop_connection_watchers(peer);
+        arm_connection_watchers(peer, ev::WRITE, false);
+        return;
+      }
+      handle_peer_connection_and_dispatch(peer);
     }
-    return;
+
   }
 }
 
 void PeerConnectionManager::handle_peer_transport_level_initiations(PeerConnection& peer, int event) {
   if (event & ev::WRITE)
   {
-    if (peer_transport_level_connected(peer) == false) {
+    if ( !peer_transport_level_connected(peer)) {
       handle_peer_failure(peer);
       return;
     }
 
     peer.state = pstate::HANDSHAKE;
-
     assert( peer.send_buffer.empty() );
     peer.outgoing_frame_cursor.reset();
     auto [encode_completed] = bittorrent_messages::handshake::encode( handshake, peer.send_buffer, peer.outgoing_frame_cursor );
@@ -568,7 +601,6 @@ void PeerConnectionManager::handle_peer_transport_level_initiations(PeerConnecti
     } else {
       handle_peer_failure(peer);
     }
-
     return;
   }
 
@@ -585,7 +617,7 @@ void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
 
   assert(peer.state != pstate::CONNECTED);
 
-  if (manager.establisher.has_met_connection_qouta()) {
+  if (manager.statistics.has_met_connection_quota()) {
     manager.delete_peer_connection(peer);                                    return;
   }
 
@@ -605,7 +637,7 @@ void PeerConnectionManager::peer_socket_callback(ev::io& sw, int event) {
 
 void PeerConnectionManager::initialize_server_specifics(PeerConnection& peer, int socket, peer_sock_store_t* store) {
   peer.tcp.__socket = socket;
-  memcpy(&peer.store, store, server.store_len);
+  memcpy(&peer.store, store, outbound_connection_server.parameters.store_len);
 }
 
 void PeerConnectionManager::arm_connection_watchers(PeerConnection& peer, int event, bool reset_timer) {
@@ -621,22 +653,38 @@ void PeerConnectionManager::stop_connection_watchers(PeerConnection& peer) {
   peer.listener.for_timer.stop();
 }
 
-void PeerConnectionManager::dispatch_connect(PeerConnection& peer) {
-  // send connected peer to transfer manager for management here.
+void PeerConnectionManager::handle_peer_connection_and_dispatch(PeerConnection& peer) {
+  peer.state = pstate::CONNECTED;
+  stop_connection_watchers(peer);
+
   std::size_t cached_generation = reinterpret_cast<connection_slot*>(&peer)->generation();
-  // WARNING!! -> check id paramater
+  // WARNING!! -> remove id paramater no longer needed.
   connect_update new_connect { .peer=&peer, .socket=peer.tcp.get_socket(), .id=0, .generation=cached_generation };
   (void)connects.queue.push(std::move(new_connect));
   connects.consumer.send();
+
+  statistics.increment_connected_bittorrent_peers();
+  if (peer.source == psource::tcp_server)
+    statistics.single_outbound_resolved();
+  else {
+    statistics.single_inbound_resolved();
+    inbound_connection_scheduler.send_notification();
+  }
 }
 
 void PeerConnectionManager::server_socket_callback(ev::io& server, int event){
   (void)event;(void)server;
+
   bool pending_accepts = true;
-  while (establisher.has_met_connection_qouta() == false && pending_accepts)
+  auto has_outbound_inflight_capacity = [&] {
+    return  statistics.get_outbound_inflight() < bprotocol::constants::max_outbound_inflight;
+  };
+
+  while ( !statistics.has_met_connection_quota() && has_outbound_inflight_capacity() && pending_accepts )
      pending_accepts = accept_peer_connection();
+
 }
 
 int PeerConnectionManager::get_listening_port() {
-  return server.port;
+  return outbound_connection_server.parameters.port;
 }

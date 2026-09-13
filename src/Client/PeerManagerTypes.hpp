@@ -24,8 +24,8 @@
 inline constexpr int PEER_SHUTDOWN = -100;
 inline constexpr int NO_ERROR      = -1;
 
-class PeerTransferManager;
-class PeerConnectionManager;
+class  PeerTransferManager;
+class  PeerConnectionManager;
 struct PeerConnection;
 struct PeerSession;
 struct peer_nonblock_tcp;
@@ -40,19 +40,6 @@ struct recv_transact {
   bool transport_ok;
   bool buffer_full;           // This tells caller that something was added to buffer
   std::size_t recvd_bytes;     // This is the size of the something
-};
-
-struct tcp_server_context
-{
-  int socket{};
-  //sockaddr_storage store{} ├── EINPROGRESS         → WAITING;
-  union {sockaddr_in ipv4; sockaddr_in6 ipv6;} store{};
-  socklen_t store_len{};
-  int flags {SOCK_STREAM|SOCK_NONBLOCK};
-  int trspt_proto{IPPROTO_TCP};
-  int off_ipv6only{0};
-  bool ipv4_support{false};
-  int port{0};
 };
 
 enum pconnect_return_t:std::uint8_t { inprogress, failed, connected };

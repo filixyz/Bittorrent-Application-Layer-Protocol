@@ -13,6 +13,7 @@ bool PeerConnectionManager::handle_server_errno(int error){
 }
 
 void PeerConnectionManager::handle_socket_errno(int error) {
+  auto& server = outbound_connection_server.parameters;
   if (error == EAFNOSUPPORT) {
     ipv4_default_server_sockstore();
     server.socket = socket(AF_INET, server.flags, server.trspt_proto);
@@ -28,6 +29,7 @@ void PeerConnectionManager::handle_socket_errno(int error) {
 }
 
 void PeerConnectionManager::handle_ip_errno(int error) {
+  auto& server = outbound_connection_server.parameters;
   if (error == ENODEV) {
     server.ipv4_support = false;
     return;
@@ -36,6 +38,7 @@ void PeerConnectionManager::handle_ip_errno(int error) {
 }
 
 void PeerConnectionManager::handle_bind_errno(int error) {
+  auto& server = outbound_connection_server.parameters; (void) server;
   if (error == EADDRINUSE) {}
   throw Peer_Manager_SYS_Error{error};
 }
