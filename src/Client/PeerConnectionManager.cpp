@@ -548,8 +548,11 @@ void PeerConnectionManager::handle_peer_application_level_handshake(PeerConnecti
     if ( !handshake_decode.complete)
       return;
 
-    if ( !handshake_decode.valid )
+    if ( !handshake_decode.valid ) {
+      peer.tcp.close_socket();
+      delete_peer_connection(peer);
       return;
+    }
 
     if (peer.source == psource::tracker)
       handle_peer_connection_and_dispatch(peer);
