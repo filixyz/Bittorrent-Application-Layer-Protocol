@@ -21,7 +21,9 @@
 
 using connection_pool_t = slot_recycling_pool<PeerConnection, 200>;
 using connection_slot =  connection_pool_t::pool_slot;
-template <typename Key> using peer_storage_t = std::unordered_map< Key, connection_slot*, peer_manager_hashers>;
+using handshake_t = bittorrent_messages::handshake_t;
+template <typename Key>
+using peer_register_t = std::unordered_map< Key, connection_slot*, peer_manager_hashers>;
 
 struct tcp_server_context
 {
@@ -85,36 +87,33 @@ struct outbound_server_t {
   ev::io watcher;
 };
 
-class PeerConnectionManager {
-
-  friend class inbound_scheduler_t;
+class PeerConnectionManager { friend class inbound_scheduler_t;
 
   ev::dynamic_loop event_loop;
+
+  connection_statistics_t statistics;
+  connection_pool_t connection_pool;
+  peer_register_t<ipv4_peer_address> ipv4_peers{};
+  peer_register_t<ipv6_peer_address> ipv6_peers{};
+
   outbound_server_t outbound_connection_server;
 
-  const TorrentFile& torrent;
-  pconnection_queue& connects;
-
-  pdisconnection_queue& disconnects;
-  pdiscovery_queue_ipv4& discovered;
+  pdisconnection_queue disconnects;
+  pdiscovery_queue_ipv4 discovered; //-------------------------------------->  need to coalesce these two into 1 object
+  overwritable_cache<ipv4_peer_address, 100> cached_discoveries_ipv4; //---->  changed my mind on this; will be pain to implement
   std::queue<peer_failure_update> failed_peers;
-
-  const bittorrent_messages::handshake_t handshake;  // check if hanshake computed WARNING.
   inbound_scheduler_t inbound_connection_scheduler;
-  connection_statistics_t statistics;
 
-  connection_pool_t connection_pool;
-  peer_storage_t<ipv4_peer_address> ipv4_peers{};
-  peer_storage_t<ipv6_peer_address> ipv6_peers{};
-  overwritable_cache<ipv4_peer_address, 100> ipv4_discovered_cache;
-  //std::unordered_map<peer_id_t, PeerConnection*, peer_manager_hashers> peer_ids; // for deduplication after handshake.
+  const TorrentFile& torrent;
+  const handshake_t handshake;
+  pconnection_queue& connects;
 
   void ipv6_default_server_sockstore();
   void ipv4_default_server_sockstore();
   int  initialize_libev();
   void initialize_server_socket();
   void initialize_manager_watchers();
-  bittorrent_messages::handshake_t compute_handshake();
+  handshake_t compute_handshake();
 
   void handle_socket_errno(int);
   void handle_ip_errno(int);
@@ -126,25 +125,27 @@ class PeerConnectionManager {
 
   void initialize_server_specifics(PeerConnection&, int, peer_sock_store_t*);
   bool connect(PeerConnection&);
+  bool peer_transport_level_connected(PeerConnection&);
   void deregister_from_map(PeerConnection&);
   void delete_peer_connection(PeerConnection&);
-  void arm_connection_watchers(PeerConnection&, int event, bool reset_timer);
-  void stop_connection_watchers(PeerConnection&);
-  bool peer_transport_level_connected(PeerConnection&);
 
   void handle_peer_failure(PeerConnection&);
   void handle_peer_application_level_handshake(PeerConnection&, int event);
   void handle_peer_transport_level_initiations(PeerConnection&, int event);
   void handle_peer_connection_and_dispatch(PeerConnection&);
 
+  void arm_connection_watchers(PeerConnection&, int event);
+  void modify_peer_socket_w_event(PeerConnection&, int event);
+  void stop_connection_watchers(PeerConnection&);
+
   void static peer_socket_callback(ev::io&, int);
   void static peer_timer_callback(ev::timer&, int);
 
   void drain_discovered();
-  void drain_disconnected();
+  void notify_disconnected();
 
 public:
-  PeerConnectionManager(TorrentFile&, pconnection_queue&, pdisconnection_queue&, pdiscovery_queue_ipv4&);
+  PeerConnectionManager(TorrentFile&, pconnection_queue&);
   void run_manager();
   int get_listening_port();
 };

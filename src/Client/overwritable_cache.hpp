@@ -3,11 +3,13 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <vector>
+#include <array>
 
 template < typename T, std::size_t N > class overwritable_cache {
   static_assert( N != 0 );
-  std::vector<T> cache;
+
+  //std::vector<T> cache;
+  std::array<T, N> cache;
   std::size_t write{0};
   std::size_t read{0};
   std::size_t size{0};
@@ -20,7 +22,9 @@ template < typename T, std::size_t N > class overwritable_cache {
   }
 
 public:
-  overwritable_cache(): cache(N, T()) {};
+
+  //overwritable_cache(): cache(N, T()) {};
+  overwritable_cache() = default;
 
   void push (T val) noexcept {
     cache[write] = std::move(val);
