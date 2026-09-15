@@ -11,8 +11,7 @@
 #include "io_ring_buffer.hpp"
 #include "ThreadMessageTypes.hpp"
 #include "bittorrent_messages.hpp"
-#define XXH_INLINE_ALL
-#include "xxhash.h"
+#include "Hasher.hpp"
 //Unix Networking Headers here
 #include <sys/socket.h>
 #include <fcntl.h>
@@ -204,14 +203,14 @@ using pdisconnection_queue = nspsc_queue<disconnect_update, 50>;
 using pdiscovery_queue_ipv4 = nspsc_queue<ipv4_peer_address, 50>;
 
 struct peer_manager_hashers {
-  std::size_t operator()(const ipv4_peer_address& key) const noexcept {
-    return XXH3_64bits(key.iport.data(), key.iport.size());
+  std::uint64_t operator()(const ipv4_peer_address& key) const noexcept {
+    return Hasher::fnv_1a_64bits(key.iport);
   }
-  std::size_t operator()(const ipv6_peer_address& key) const noexcept {
-    return XXH3_64bits(key.iport.data(), key.iport.size());
+  std::uint64_t operator()(const ipv6_peer_address& key) const noexcept {
+    return Hasher::fnv_1a_64bits(key.iport);
   }
-  std::size_t operator()(const peer_id_t& key) const noexcept {
-    return XXH3_64bits(key.data(), key.size());
+  std::uint64_t operator()(const peer_id_t& key) const noexcept {
+    return Hasher::fnv_1a_64bits(key);
   }
 };
 
