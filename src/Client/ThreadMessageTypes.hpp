@@ -5,7 +5,7 @@
 // For interacting with peer manager
 
 template<class T, std::size_t N>
-struct nspsc_queue {
+struct beamable_spsc_t {
   spsc_queue<T, N> queue;
   ev::async consumer;
 };

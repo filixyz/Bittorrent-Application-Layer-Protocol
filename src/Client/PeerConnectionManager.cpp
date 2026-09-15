@@ -35,8 +35,8 @@ void PeerConnectionManager::initialize_manager_watchers() {
   server.watcher.set(event_loop);
   server.watcher.set(server.parameters.socket, ev::READ);
   server.watcher.set<PeerConnectionManager, &PeerConnectionManager::server_socket_callback>(this);
-  discovered.consumer.set(event_loop);
-  discovered.consumer.set<PeerConnectionManager, &PeerConnectionManager::drain_discovered>(this);
+  discoveries.beamable_spsc.consumer.set(event_loop);
+  discoveries.beamable_spsc.consumer.set<PeerConnectionManager, &PeerConnectionManager::drain_discovered>(this);
   disconnects.consumer.set(event_loop);
   disconnects.consumer.set<PeerConnectionManager, &PeerConnectionManager::notify_disconnected>(this);
 }
@@ -54,8 +54,8 @@ bittorrent_messages::handshake_t PeerConnectionManager::compute_handshake() {
 
 void PeerConnectionManager::drain_discovered() {
   ipv4_peer_address addr;
-  while (discovered.queue.pop(addr)) {
-    cached_discoveries_ipv4.push(std::move(addr));
+  while (discoveries.beamable_spsc.queue.pop(addr)) {
+    discoveries.cache.push(std::move(addr));
   }
   if (statistics.has_met_connection_quota() or !connection_pool.available())
     return;
@@ -127,7 +127,7 @@ bool inbound_scheduler_t::initiate_connect(PeerConnection& peer) {
 // manager::handle_failure() also closes socket upon transient notice of peer transport failure
 // tranfermanger also close socket of peers relayed to it upon it's immediate notice of peer transport failure
 
-bool inbound_scheduler_t::discovered_peer_handler() {
+bool inbound_scheduler_t::discovered_peer_scheduler() {
 
   // guard connection pool from overgrowing
   // larger than it's boundary.
@@ -135,7 +135,7 @@ bool inbound_scheduler_t::discovered_peer_handler() {
     return false;
 
   ipv4_peer_address addr;
-  while ( manager.cached_discoveries_ipv4.fresh_pop(addr)==true ) {
+  while ( manager.discoveries.cache.fresh_pop(addr)==true ) {
     auto [acquisition_successful,  acquired_slot] = manager.connection_pool.acquire();
     assert(acquisition_successful);
     auto [it, inserted] = manager.ipv4_peers.try_emplace(addr, acquired_slot);
@@ -158,7 +158,7 @@ bool inbound_scheduler_t::discovered_peer_handler() {
   return false;
 }
 
-bool inbound_scheduler_t::disconnected_peer_handler() {
+bool inbound_scheduler_t::disconnected_peer_scheduler() {
   disconnect_update disconnected;
   while ( manager.disconnects.queue.pop(disconnected)==true ) {
     auto& peer = * const_cast<PeerConnection*>(disconnected.peer);
@@ -184,11 +184,11 @@ bool inbound_scheduler_t::disconnected_peer_handler() {
 }
 
 // peer can only reach her if handled with manager.handle_peer_failure()
-bool inbound_scheduler_t::failed_peer_handler() {
+bool inbound_scheduler_t::failed_peer_scheduler() {
 
-  while ( manager.failed_peers.empty() == false ) {
-    peer_failure_update failed_peer = manager.failed_peers.front();
-    manager.failed_peers.pop();
+  while ( manager.retry_queue.empty() == false ) {
+    peer_failure_update failed_peer = manager.retry_queue.front();
+    manager.retry_queue.pop();
     if (failed_peer.connection->generation() != failed_peer.cached_generation)
       continue;
     PeerConnection& peer = failed_peer.connection->object;
@@ -211,11 +211,11 @@ void inbound_scheduler_t::round_robin_establisher_scheduler() {
   for (; manager.statistics.get_inbound_inflight() < bprotocol::constants::max_inbound_inflight; ) {
      std::size_t spot = static_cast<std::size_t>(current);
     if (current == discovered)
-      empties[spot] = !discovered_peer_handler();
+      empties[spot] = !discovered_peer_scheduler();
     else if (current == disconnected)
-      empties[spot] = !disconnected_peer_handler();
+      empties[spot] = !disconnected_peer_scheduler();
     else if (current == failed)
-      empties[spot] = !failed_peer_handler();
+      empties[spot] = !failed_peer_scheduler();
     if (empties[0] && empties[1] && empties[2])
       break;
     plus_mask_current(spot);
@@ -484,7 +484,7 @@ void PeerConnectionManager::peer_timer_callback(ev::timer& timer, int) {
   if (peer.state == pstate::FAILED) {
     manager.stop_connection_watchers(peer);
     peer_failure_update new_failure { peer_slot, peer_slot->generation() };
-    manager.failed_peers.push(new_failure);
+    manager.retry_queue.push(new_failure);
     return;
   }
   // should coalesce to this when in another state, DISCOVERED, HANDSHAKE and DISCONNECTED.
@@ -645,11 +645,13 @@ void PeerConnectionManager::arm_connection_watchers(PeerConnection& peer, int ev
   peer.listener.for_timer.set(bprotocol::constants::peer::connect_timeout);
   peer.listener.for_timer.start();
 }
+
 void PeerConnectionManager::modify_peer_socket_w_event(PeerConnection& peer, int event) {
   peer.listener.for_sock.stop();
   peer.listener.for_sock.set(peer.tcp.get_socket(), event);
   peer.listener.for_sock.start();
 }
+
 void PeerConnectionManager::stop_connection_watchers(PeerConnection& peer) {
   peer.listener.for_sock.stop();
   peer.listener.for_timer.stop();

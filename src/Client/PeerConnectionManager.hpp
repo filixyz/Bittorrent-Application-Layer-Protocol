@@ -70,9 +70,10 @@ class inbound_scheduler_t {
     std::array<bool, handlers_count> empties {false};
     ev::async daemon;
 
-    bool discovered_peer_handler();
-    bool disconnected_peer_handler();
-    bool failed_peer_handler();
+    bool discovered_peer_scheduler();
+    bool disconnected_peer_scheduler();
+    bool failed_peer_scheduler();
+
     void plus_mask_current(std::size_t spot);
     void round_robin_establisher_scheduler();
     bool initiate_connect(PeerConnection&);
@@ -87,6 +88,11 @@ struct outbound_server_t {
   ev::io watcher;
 };
 
+struct pdiscovery_queue_ipv4_t {
+  beamable_spsc_t<ipv4_peer_address, 100> beamable_spsc;
+  overwritable_cache<ipv4_peer_address, 200> cache;
+};
+
 class PeerConnectionManager { friend class inbound_scheduler_t;
 
   ev::dynamic_loop event_loop;
@@ -99,9 +105,8 @@ class PeerConnectionManager { friend class inbound_scheduler_t;
   outbound_server_t outbound_connection_server;
 
   pdisconnection_queue disconnects;
-  pdiscovery_queue_ipv4 discovered; //-------------------------------------->  need to coalesce these two into 1 object
-  overwritable_cache<ipv4_peer_address, 100> cached_discoveries_ipv4; //---->  changed my mind on this; will be pain to implement
-  std::queue<peer_failure_update> failed_peers;
+  pdiscovery_queue_ipv4_t discoveries;
+  std::queue<peer_failure_update> retry_queue;
   inbound_scheduler_t inbound_connection_scheduler;
 
   const TorrentFile& torrent;

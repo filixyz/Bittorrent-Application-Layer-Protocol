@@ -198,9 +198,8 @@ private:
   static PeerConnection  dummypeer;
 };
 
-using pconnection_queue = nspsc_queue<connect_update, 50>;
-using pdisconnection_queue = nspsc_queue<disconnect_update, 50>;
-using pdiscovery_queue_ipv4 = nspsc_queue<ipv4_peer_address, 50>;
+using pconnection_queue = beamable_spsc_t<connect_update, 50>;
+using pdisconnection_queue = beamable_spsc_t<disconnect_update, 50>;
 
 struct peer_manager_hashers {
   std::uint64_t operator()(const ipv4_peer_address& key) const noexcept {
