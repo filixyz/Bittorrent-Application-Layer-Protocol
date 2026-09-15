@@ -2,11 +2,9 @@
 #include <array>
 #include <bit>
 #include <cstddef>
-#include <cstdint>
 #include <ev.h>
 #include <sys/uio.h>
 #include <cassert>
-#include "Constants.hpp"
 
 struct prepare_t {
   std::size_t prepared_iovecs {};
@@ -25,7 +23,7 @@ template <std::size_t N> class io_ring_buffer {
   static_assert(N!=0, "tcp_buffer size cannot be zero");
   std::size_t read{0}, write{0};
   std::size_t readable{0};
-  std::array<std::uint8_t, N> buffer;
+  std::array<std::byte, N> buffer;
   std::size_t mask(std::size_t);
 
 public:

@@ -11,6 +11,7 @@
 #include "io_ring_buffer.hpp"
 #include "ThreadMessageTypes.hpp"
 #include "bittorrent_messages.hpp"
+#include "Constants.hpp"
 #include "Hasher.hpp"
 //Unix Networking Headers here
 #include <sys/socket.h>
@@ -19,7 +20,6 @@
 #include <cerrno>
 #include <arpa/inet.h>
 #include <netdb.h>
-
 inline constexpr int PEER_SHUTDOWN = -100;
 inline constexpr int NO_ERROR      = -1;
 

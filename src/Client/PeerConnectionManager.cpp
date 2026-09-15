@@ -542,7 +542,10 @@ void PeerConnectionManager::handle_peer_application_level_handshake(PeerConnecti
       return;
     }
 
-    auto handshake_decode = bittorrent_messages::handshake::decode(peer.recv_buffer, torrent.get_info_hash_bytes());
+    auto handshake_decode = bittorrent_messages::handshake::decode (
+      peer.recv_buffer, torrent.get_info_hash_bytes(), peer.peer_id
+    );
+
     if ( !handshake_decode.complete)
       return;
 

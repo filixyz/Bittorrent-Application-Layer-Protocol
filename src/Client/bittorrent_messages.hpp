@@ -8,12 +8,21 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <sys/uio.h>
 
 namespace bittorrent_messages {
 
   namespace length {
     constexpr std::size_t handshake = 68;
   }
+
+  enum handshake_offset: std::uint8_t {
+    pstrlen   = 1,
+    pstr      = 20,
+    reserved  = 28,
+    info_hash = 48,
+    peer_id   = 68
+  };
 
   namespace header {
     constexpr std::array<std::byte, 0> keepalive;
@@ -48,6 +57,17 @@ namespace bittorrent_messages {
     std::size_t cursor {0};
     void reset() { cursor = 0; }
   };
+
+  inline auto saturating_sub = [](std::size_t a, std::size_t b) { return a >= b ? a - b : 0; };
+
+  inline static std::span<std::byte> wraparound_steal (prepare_t& prepare, std::size_t size) {
+    auto& io_vec = prepare.iovec_array[1];
+    std::span<std::byte> stolen = { reinterpret_cast<std::byte*>(io_vec.iov_base) , size };
+    std::byte* advanced_addr = stolen.data() + size;
+    io_vec.iov_base = advanced_addr;
+    io_vec.iov_len -= size;
+    return stolen;
+  }
 
 namespace handshake {
 
@@ -90,10 +110,116 @@ namespace handshake {
     return encode_resolve;
   }
 
-  template <std::size_t size> decode_result decode( io_ring_buffer<size>& buffer, std::span<const std::byte> info_hash ) {
-    (void) buffer;
-    return {false, false};
+  inline decode_result decode (
+
+    io_ring_buffer<length::handshake>&    buffer,
+    std::span<const std::byte>            info_hash_seq,
+    std::array<std::byte, 20>&            peer_id_ref
+
+  ) {
+
+    decode_result decode_resolve { .complete=false, .valid=false };
+
+    prepare_t prepare = buffer.prepare_read();
+
+    if (prepare.prepared_bytes() < length::handshake)
+      return decode_resolve;
+
+    assert(prepare.prepared_iovecs == 2 or prepare.prepared_iovecs == 1);
+
+    decode_resolve.complete = true;
+
+    for ( std::size_t index = 0, range = pstrlen ; index < prepare.prepared_iovecs; ++index ) {
+
+      std::span<const std::byte> io_view (
+        reinterpret_cast<const std::byte*> (prepare.iovec_array[index].iov_base),
+        prepare.iovec_array[index].iov_len
+      );
+
+      if ( range == pstrlen ) {
+
+        if ( io_view.size() < 1 )   continue;
+
+        decode_resolve.valid = static_cast<std::uint8_t>(io_view[0]) == 0x13;
+        io_view = io_view.subspan(1);
+
+        if (!decode_resolve.valid ) break;
+
+        range = pstr;
+
+      }
+
+      if ( range == pstr ) {
+
+        if ( io_view.size() < 19 ) {
+          auto remaining = wraparound_steal(prepare, 19 - io_view.size());
+          decode_resolve.valid = true;
+          (void) remaining;
+          range = reserved;
+          continue;
+        } else {
+          decode_resolve.valid = true;
+          io_view = io_view.subspan(19);
+          range = reserved;
+        }
+
+      }
+
+      if ( range == reserved ) {
+
+        if ( io_view.size() < 8 ) {
+          auto remaining = wraparound_steal(prepare, 8 - io_view.size());
+          decode_resolve.valid = true;
+          (void) remaining;
+          range = info_hash;
+          continue;
+        } else {
+          decode_resolve.valid = true;
+          io_view = io_view.subspan(8);
+          range = info_hash;
+        }
+
+      }
+
+      if ( range == info_hash ) {
+
+        if ( io_view.size() < 20 ) {
+          auto remaining = wraparound_steal(prepare, 20 - io_view.size());
+          decode_resolve.valid =
+            std::ranges::equal(info_hash_seq.first(io_view.size()), io_view) &&
+            std::ranges::equal(info_hash_seq.subspan(io_view.size()), remaining);
+          if (!decode_resolve.valid) break;
+          range = peer_id;
+          continue;
+        } else {
+          decode_resolve.valid = std::ranges::equal(info_hash_seq, io_view.first(20));
+          io_view = io_view.subspan(20);
+          if ( !decode_resolve.valid ) break;
+          range = peer_id;
+        }
+
+      }
+
+      if ( range == peer_id ) {
+
+        if (io_view.size() < 20 ) {
+          auto remaining = wraparound_steal(prepare, 20 - io_view.size());
+          std::ranges::copy(io_view, peer_id_ref.begin());
+          std::ranges::copy(remaining, peer_id_ref.begin() + io_view.size());
+          break;
+        } else {
+          std::ranges::copy(io_view.first(20), peer_id_ref.begin());
+          io_view = io_view.subspan(20);
+          break;
+        }
+
+      }
+    }
+
+    buffer.commit_read(length::handshake);
+    return decode_resolve;
   }
+
 }
 
 namespace keep_alive {
